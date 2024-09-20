@@ -7,15 +7,24 @@ import seaborn as sns
 
 
 def get_prediction(model, image, device):
+    
+    # plt.figure(figsize=(10, 8))
+    # plt.imshow(image.squeeze(), cmap='Greys')
+    # plt.show()
     image = image.to(device)
     prediction = model(image).cpu().detach().numpy()
-    
     return prediction
 
-def TTA(transforms, model, image, device, nb_augmentations=10):
-    tta_predictions = [get_prediction(model, transforms(image), device) for _ in range(nb_augmentations)]
+def TTA(transforms, models, image, device, nb_augmentations=10):
+    plt.close('all')
+    if isinstance(models, list):
+        tta_predictions = [np.mean([get_prediction(model, transforms(image), device) for model in models]) for _ in range(nb_augmentations)]
+    else: 
+        tta_predictions = [get_prediction(models, transforms(image), device) for _ in range(nb_augmentations)]
     
-    return tta_predictions
+    std = np.std(tta_predictions)  
+    
+    return tta_predictions, std
 
 def ensembling_predictions(models, image):
     ensembling_predictions = [get_prediction(model, image) for model in models]
@@ -53,35 +62,20 @@ def model_calibration_plot(true_labels, predictions):
     plt.legend()
     plt.grid()
     plt.show()
-    
-def distance_to_gold_std_plot(correct_predictions_distances, incorrect_predictions_distances):
+
+def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title):
     df = pd.DataFrame({
-        'Distance': correct_predictions_distances + incorrect_predictions_distances,
-        'Category': ['Correct Results'] * len(correct_predictions_distances) + ['Incorrect Results'] * len(incorrect_predictions_distances)
+        y_title: correct_predictions + incorrect_predictions,
+        'Category': ['Correct Results'] * len(correct_predictions) + ['Incorrect Results'] * len(incorrect_predictions)
         })
     
     plt.figure(figsize=(10, 6))
 
     # Create the boxplot
-    sns.boxplot(x='Category', y='Distance', data=df, palette='muted')
-    sns.swarmplot(x='Category', y='Distance', data=df, color='k', alpha=0.3)
+    sns.boxplot(x='Category', y=y_title, data=df, palette='muted')
+    sns.swarmplot(x='Category', y=y_title, data=df, color='k', alpha=0.3)
     # Show the plot
-    plt.title('Distance with gold standard')
-    plt.show()
-    
-def ensembling_std_plot(correct_predictions_stds, incorrect_predictions_stds):
-    df = pd.DataFrame({
-        'Stds': correct_predictions_stds + incorrect_predictions_stds,
-        'Category': ['Correct Results'] * len(correct_predictions_stds) + ['Incorrect Results'] * len(incorrect_predictions_stds)
-        })
-    
-    plt.figure(figsize=(10, 6))
-
-    # Create the boxplot
-    sns.boxplot(x='Category', y='Stds', data=df, palette='muted')
-    sns.swarmplot(x='Category', y='Stds', data=df, color='k', alpha=0.3)
-    # Show the plot
-    plt.title('Standard deviations ensembling')
+    plt.title(title)
     plt.show()
     
 def roc_curve_UQ_method_computation(correct_predictions, incorrect_predictions):
