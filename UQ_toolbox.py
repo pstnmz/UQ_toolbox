@@ -4,6 +4,8 @@ from sklearn.metrics import roc_auc_score, roc_curve
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import gps_augment
+
 
 
 def get_prediction(model, image, device):
@@ -104,4 +106,9 @@ def roc_curve_UQ_methods_plot(method_names, fprs, tprs, auc_scores):
     plt.title('ROC Curve for UQ methods')
     plt.legend(loc="lower right")
     plt.show()
+    
+def GPS(model, test_set):
+    gps_augment.get_predictions_randaugment
+    # with open('gps-augment/get_predictions_randaugment.py') as f:
+    #     exec(f.read())
         
