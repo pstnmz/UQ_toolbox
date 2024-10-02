@@ -4,7 +4,7 @@ from sklearn.metrics import roc_auc_score, roc_curve
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import gps_augment
+#import gps_augment
 
 
 
@@ -107,8 +107,34 @@ def roc_curve_UQ_methods_plot(method_names, fprs, tprs, auc_scores):
     plt.legend(loc="lower right")
     plt.show()
     
-def GPS(model, test_set):
-    gps_augment.get_predictions_randaugment
-    # with open('gps-augment/get_predictions_randaugment.py') as f:
-    #     exec(f.read())
-        
+# def GPS(model, test_set):
+#     gps_augment.get_predictions_randaugment
+#     # with open('gps-augment/get_predictions_randaugment.py') as f:
+#     #     exec(f.read())
+
+def standardize_and_mean_ensembling(distributions):
+    """
+    Standardizes any number of distributions using a global mean and standard deviation.
+    Returns a single column array with the maximum value for each instance across the standardized distributions.
+    
+    Parameters:
+    distributions: 2D numpy array, where each column represents a different distribution (uncertainty method).
+    
+    Returns:
+    max_values: 1D numpy array containing the maximum standardized value for each row.
+    """
+    # Flatten the array to compute the global mean and standard deviation
+    combined = distributions.flatten()
+    
+    # Compute global mean and standard deviation
+    global_mean = np.mean(combined)
+    global_std_dev = np.std(combined)
+    
+    # Apply z-score standardization to each distribution (column)
+    standardized_distributions = (distributions - global_mean) / global_std_dev
+    
+    # Find the maximum standardized value for each instance (row)
+    max_values = np.mean(standardized_distributions, axis=1)
+    
+    return max_values
+    
