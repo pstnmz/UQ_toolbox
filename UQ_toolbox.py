@@ -4,9 +4,8 @@ from sklearn.metrics import roc_auc_score, roc_curve
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import gps_augment
-import gps_augment.get_predictions_randaugment
-
+import torch
+from gps_augment.utils.randaugment import BetterRandAugment
 
 
 def get_prediction(model, image, device):
@@ -137,3 +136,89 @@ def standardize_and_mean_ensembling(distributions):
     
     return max_values
     
+def apply_randaugment(data_loader, model, N=2, M=5, num_tta=10, binary_classification=False):
+    model.eval()
+    all_predictions = []
+    
+    for _ in range(num_tta):
+        augmented_loader = apply_better_randaugment(data_loader, N, M)
+        preds = []
+        
+        for inputs, targets in augmented_loader:
+            inputs = inputs.cuda()
+            with torch.no_grad():
+                outputs = model(inputs)
+                if binary_classification:
+                    preds.append(torch.sigmoid(outputs).cpu().numpy())
+                else:
+                    preds.append(torch.nn.functional.log_softmax(outputs, dim=1).cpu().numpy())
+        
+        all_predictions.append(np.vstack(preds))
+
+    return np.mean(all_predictions, axis=0)  # average over TTA
+
+def evaluate_policy(predictions, targets, binary_classification=False):
+    """
+    Evaluate policy based on calibrated log-likelihood, accuracy, and ROC AUC.
+    
+    Parameters:
+    - predictions: np.array of shape (num_samples, num_classes or 1) after averaging TTA
+    - targets: Ground truth labels.
+    - binary_classification: True for binary classification, False for multi-class.
+
+    Returns:
+    - dict with 'calibrated_log_likelihood', 'accuracy', and 'roc_auc' scores.
+    """
+    
+    # Calibrated Log-Likelihood
+    if binary_classification:
+        log_likelihood = -np.mean(np.log(np.clip(predictions, 1e-7, 1 - 1e-7)))  # Binary case
+    else:
+        log_likelihood = -np.mean(np.sum(targets * np.log(np.clip(predictions, 1e-7, 1 - 1e-7)), axis=1))  # Multi-class case
+
+    # Accuracy
+    if binary_classification:
+        preds_labels = (predictions > 0.5).astype(int)
+    else:
+        preds_labels = np.argmax(predictions, axis=1)
+    
+    accuracy = accuracy_score(targets, preds_labels)
+    
+    # ROC AUC based on SD of TTA predictions
+    # Assuming you have multiple predictions from TTA stored, calculate SD for uncertainty measure
+    stds = np.std(predictions, axis=0)  # SD of the predictions from multiple augmentations
+    success_failure = np.abs(targets - preds_labels)  # Success = 0, Failure = 1
+
+    if binary_classification:
+        roc_auc = roc_auc_score(success_failure, stds)
+    else:
+        roc_auc = roc_auc_score(success_failure, stds, multi_class='ovr')  # One-vs-Rest for multi-class
+
+    return {
+        'calibrated_log_likelihood': log_likelihood,
+        'accuracy': accuracy,
+        'roc_auc': roc_auc
+    }
+    
+def apply_better_randaugment(data_loader, N, M):
+    # Apply BetterRandAugment to the dataset
+    augment_transform = BetterRandAugment(N=N, M=M)
+    data_loader.dataset.transform = augment_transform  # Modify the data loader with augmentation
+    return data_loader
+
+def gps_policy_search(model, data_loader, num_policies=5, binary_classification=False,  N=3, M=9):
+    best_policy = None
+    best_score = -np.inf
+
+    for _ in range(num_policies):
+        current_predictions = apply_randaugment(data_loader, model, N=N, M=M, binary_classification=binary_classification)
+        
+        # Evaluate policy performance using validation set, select best policy based on log-likelihood, accuracy, etc.
+        # For simplicity, you can compare the performance using your metric of choice
+        score = evaluate_policy(current_predictions, data_loader)  # Custom function for evaluation
+        
+        if score > best_score:
+            best_score = score
+            best_policy = (N, M)  # Store the best policy parameters
+
+    return best_policy
