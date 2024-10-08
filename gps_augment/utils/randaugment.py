@@ -7,7 +7,7 @@ from torchvision import transforms
 
 FILL_MEAN = False
 FILL_COLOR = (0, 0, 0)
-IMAGE_SIZE = 32
+IMAGE_SIZE = 51
 PAD = IMAGE_SIZE - 1
 INTERPOLATION = Image.BICUBIC
 
@@ -215,6 +215,8 @@ class BetterRandAugment:
         if self.verbose:
             print('Resampled transform. Current transform: ')
             print(str(self.get_transform_str()))
+            operation_names = [(self.augment_list[ind][0].__name__, m) for ind, m in zip(self.op_inds, self.Ms)]
+            print(f"Resampled transform: {operation_names}")
     
     def set_transform(self, transform):
         self.op_inds = []

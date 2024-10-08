@@ -1,11 +1,20 @@
 import matplotlib.pyplot as plt
 from sklearn.calibration import calibration_curve
-from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
+from torchvision import transforms
 from gps_augment.utils.randaugment import BetterRandAugment
+
+
+class AddBatchDimension:
+    def __call__(self, image):
+        # Ensure the image is a tensor and add batch dimension
+        if isinstance(image, torch.Tensor):
+            return image.unsqueeze(0).float()
+        raise TypeError("Input should be a torch Tensor")
 
 
 def get_prediction(model, image, device):
@@ -106,9 +115,6 @@ def roc_curve_UQ_methods_plot(method_names, fprs, tprs, auc_scores):
     plt.title('ROC Curve for UQ methods')
     plt.legend(loc="lower right")
     plt.show()
-    
-def GPS(model, test_set):
-    gps_augment.get_predictions_randaugment.main(test_set, model)
 
 def standardize_and_mean_ensembling(distributions):
     """
@@ -136,89 +142,74 @@ def standardize_and_mean_ensembling(distributions):
     
     return max_values
     
-def apply_randaugment(data_loader, model, N=2, M=5, num_tta=10, binary_classification=False):
-    model.eval()
-    all_predictions = []
-    
-    for _ in range(num_tta):
-        augmented_loader = apply_better_randaugment(data_loader, N, M)
-        preds = []
+def to_3_channels(img):
+    if img.mode == 'L':  # Grayscale image
+        img = img.convert('RGB')  # Convert to 3 channels by duplicating
+    return img
+
+def to_1_channel(img):
+    img = img.convert('L')  # Convert back to grayscale
+    return img
+
+def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies, device, binary_classification=False, batch_norm=False, mean=False, std=False, bw=True):
+    results_dict = {}
+
+    for i in range(num_policies):
         
-        for inputs, targets in augmented_loader:
-            inputs = inputs.cuda()
-            with torch.no_grad():
-                outputs = model(inputs)
-                if binary_classification:
-                    preds.append(torch.sigmoid(outputs).cpu().numpy())
-                else:
-                    preds.append(torch.nn.functional.log_softmax(outputs, dim=1).cpu().numpy())
+        if batch_norm is False:
+            if bw is True:
+                augment_transform = transforms.Compose([
+                    transforms.ToPILImage(),
+                    to_3_channels,
+                    BetterRandAugment(N, M, True, False, verbose=True),
+                    to_1_channel,
+                    transforms.PILToTensor(),
+                    AddBatchDimension(),
+                    transforms.Normalize(mean=mean, std=std)
+                ])
+            else:
+                augment_transform = transforms.Compose([
+                    transforms.ToPILImage(),
+                    BetterRandAugment(N, M, True, False, verbose=True),
+                    transforms.PILToToTensor(),
+                    AddBatchDimension(),
+                    transforms.Normalize(mean=mean, std=std)
+                ])
+        else:
+            # Initialize BetterRandAugment with given N and M (random augmentations applied)
+            augment_transform = transforms.Compose([
+                transforms.ToPILImage(),
+                BetterRandAugment(n=N, m=M)
+            ])
         
-        all_predictions.append(np.vstack(preds))
-
-    return np.mean(all_predictions, axis=0)  # average over TTA
-
-def evaluate_policy(predictions, targets, binary_classification=False):
-    """
-    Evaluate policy based on calibrated log-likelihood, accuracy, and ROC AUC.
-    
-    Parameters:
-    - predictions: np.array of shape (num_samples, num_classes or 1) after averaging TTA
-    - targets: Ground truth labels.
-    - binary_classification: True for binary classification, False for multi-class.
-
-    Returns:
-    - dict with 'calibrated_log_likelihood', 'accuracy', and 'roc_auc' scores.
-    """
-    
-    # Calibrated Log-Likelihood
-    if binary_classification:
-        log_likelihood = -np.mean(np.log(np.clip(predictions, 1e-7, 1 - 1e-7)))  # Binary case
-    else:
-        log_likelihood = -np.mean(np.sum(targets * np.log(np.clip(predictions, 1e-7, 1 - 1e-7)), axis=1))  # Multi-class case
-
-    # Accuracy
-    if binary_classification:
-        preds_labels = (predictions > 0.5).astype(int)
-    else:
-        preds_labels = np.argmax(predictions, axis=1)
-    
-    accuracy = accuracy_score(targets, preds_labels)
-    
-    # ROC AUC based on SD of TTA predictions
-    # Assuming you have multiple predictions from TTA stored, calculate SD for uncertainty measure
-    stds = np.std(predictions, axis=0)  # SD of the predictions from multiple augmentations
-    success_failure = np.abs(targets - preds_labels)  # Success = 0, Failure = 1
-
-    if binary_classification:
-        roc_auc = roc_auc_score(success_failure, stds)
-    else:
-        roc_auc = roc_auc_score(success_failure, stds, multi_class='ovr')  # One-vs-Rest for multi-class
-
-    return {
-        'calibrated_log_likelihood': log_likelihood,
-        'accuracy': accuracy,
-        'roc_auc': roc_auc
-    }
-    
-def apply_better_randaugment(data_loader, N, M):
-    # Apply BetterRandAugment to the dataset
-    augment_transform = BetterRandAugment(N=N, M=M)
-    data_loader.dataset.transform = augment_transform  # Modify the data loader with augmentation
-    return data_loader
-
-def gps_policy_search(model, data_loader, num_policies=5, binary_classification=False,  N=3, M=9):
-    best_policy = None
-    best_score = -np.inf
-
-    for _ in range(num_policies):
-        current_predictions = apply_randaugment(data_loader, model, N=N, M=M, binary_classification=binary_classification)
+        # Apply the policy and get the predictions
+        predictions = apply_policy_and_get_predictions(data_loader, models, augment_transform, device, binary_classification=binary_classification)
         
-        # Evaluate policy performance using validation set, select best policy based on log-likelihood, accuracy, etc.
-        # For simplicity, you can compare the performance using your metric of choice
-        score = evaluate_policy(current_predictions, data_loader)  # Custom function for evaluation
-        
-        if score > best_score:
-            best_score = score
-            best_policy = (N, M)  # Store the best policy parameters
+        # Store the results in the dictionary with a unique key for each random policy
+        policy_key = str(augment_transform.transforms[2].get_transform())
+        results_dict[policy_key] = predictions
 
-    return best_policy
+    # Example file name for storing the results
+    dict_name = f'results_randaugment_{num_policies}TTA_N{N}_M{M}'
+    
+    return results_dict, dict_name
+
+def apply_policy_and_get_predictions(data_loader, models, augment_transform, device, binary_classification=False):
+    results = []
+    
+    # Predict for each sample in the test set
+    for i, batch in enumerate(data_loader):
+
+        inputs = batch['image']# Extract the image tensor and move it to the GPU
+        labels = batch['shape']  # Extract the label (you can move this to GPU if needed)
+        names = batch['name']  # Extract the image names
+
+        with torch.no_grad():
+            if isinstance(models, list):
+                predictions = np.mean([get_prediction(model, augment_transform(inputs), device) for model in models])
+            else: 
+                predictions = get_prediction(models, augment_transform(inputs), device)
+            results.extend(predictions)
+    
+    # Return the results as a numpy array (shape: [num_samples, 1] for binary, [num_samples, num_classes] for multi-class)
+    return np.array(results)
