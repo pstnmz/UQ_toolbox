@@ -4,6 +4,7 @@ from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import os
 import torch
 from torchvision import transforms
 from gps_augment.utils.randaugment import BetterRandAugment
@@ -153,25 +154,29 @@ def to_1_channel(img):
 
 def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies, device, binary_classification=False, batch_norm=False, mean=False, std=False, bw=True):
     results_dict = {}
-
+    
+    # Create folder for saving policies if it doesn't exist
+    os.makedirs('savedpolicies', exist_ok=True)
     for i in range(num_policies):
-        
+        print(f'augmentation n:{i}')
         if batch_norm is False:
             if bw is True:
                 augment_transform = transforms.Compose([
+                    AddBatchDimension(),
                     transforms.ToPILImage(),
                     to_3_channels,
-                    BetterRandAugment(N, M, True, False, verbose=True),
+                    BetterRandAugment(2, 45, True, False, verbose=True),
                     to_1_channel,
                     transforms.PILToTensor(),
-                    AddBatchDimension(),
+                    transforms.ConvertImageDtype(torch.float),  # Convert to float
+                    transforms.Lambda(lambda x: x * 255.0),
                     transforms.Normalize(mean=mean, std=std)
                 ])
             else:
                 augment_transform = transforms.Compose([
                     transforms.ToPILImage(),
                     BetterRandAugment(N, M, True, False, verbose=True),
-                    transforms.PILToToTensor(),
+                    transforms.PILToTensor(),
                     AddBatchDimension(),
                     transforms.Normalize(mean=mean, std=std)
                 ])
@@ -186,10 +191,13 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
         predictions = apply_policy_and_get_predictions(data_loader, models, augment_transform, device, binary_classification=binary_classification)
         
         # Store the results in the dictionary with a unique key for each random policy
-        policy_key = str(augment_transform.transforms[2].get_transform())
+        policy_key = str(augment_transform.transforms[3].get_transform())
         results_dict[policy_key] = predictions
+        
+        # Saving results in a .npz file in the 'savedpolicies' folder
+        filename = f'savedpolicies/N{N}_M{M}_{policy_key}.npz'
+        np.savez_compressed(filename, predictions=predictions)
 
-    # Example file name for storing the results
     dict_name = f'results_randaugment_{num_policies}TTA_N{N}_M{M}'
     
     return results_dict, dict_name
@@ -199,16 +207,23 @@ def apply_policy_and_get_predictions(data_loader, models, augment_transform, dev
     
     # Predict for each sample in the test set
     for i, batch in enumerate(data_loader):
-
-        inputs = batch['image']# Extract the image tensor and move it to the GPU
+        inputs = batch['image']
+        augmented_inputs = torch.stack([augment_transform(image) for image in inputs])
         labels = batch['shape']  # Extract the label (you can move this to GPU if needed)
         names = batch['name']  # Extract the image names
 
         with torch.no_grad():
             if isinstance(models, list):
-                predictions = np.mean([get_prediction(model, augment_transform(inputs), device) for model in models])
+                batch_predictions = []
+                for model in models:
+                    model_preds = get_prediction(model, augmented_inputs, device)
+                    batch_predictions.append(model_preds)
+                
+                stacked_preds = np.stack(batch_predictions, axis=0)
+                # Average predictions for each sample in the batch across models
+                predictions = np.mean(stacked_preds, axis=0) 
             else: 
-                predictions = get_prediction(models, augment_transform(inputs), device)
+                predictions = get_prediction(models, augmented_inputs, device)
             results.extend(predictions)
     
     # Return the results as a numpy array (shape: [num_samples, 1] for binary, [num_samples, num_classes] for multi-class)
