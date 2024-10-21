@@ -1,14 +1,16 @@
 import matplotlib.pyplot as plt
 from sklearn.calibration import calibration_curve
-from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score
+from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score, log_loss
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import os
+import multiprocessing
 import torch
+import random
 from torchvision import transforms
+import torch.nn.functional as F
 from gps_augment.utils.randaugment import BetterRandAugment
-
 
 class AddBatchDimension:
     def __call__(self, image):
@@ -19,31 +21,48 @@ class AddBatchDimension:
 
 
 def get_prediction(model, image, device):
-    
-    # plt.figure(figsize=(10, 8))
-    # plt.imshow(image.squeeze(), cmap='Greys')
-    # plt.show()
     image = image.to(device)
     prediction = model(image).cpu().detach().numpy()
     return prediction
 
-def TTA(transforms, models, image, device, nb_augmentations=10):
-    plt.close('all')
-    if isinstance(models, list):
-        tta_predictions = [np.mean([get_prediction(model, transforms(image), device) for model in models]) for _ in range(nb_augmentations)]
-    else: 
-        tta_predictions = [get_prediction(models, transforms(image), device) for _ in range(nb_augmentations)]
+def TTA(transforms, models, data_loader, device, nb_augmentations=10, usingBetterRandAugment=False, policies=None):
+    all_augmentations = []
     
-    std = np.std(tta_predictions)  
+    for _ in range(nb_augmentations):
+        print(_)
+        tta_predictions = []
+        # Predict for each sample in the test set
+        for i, batch in enumerate(data_loader):
+            inputs = batch['image']
+            augmented_inputs = torch.stack([transforms(image) for image in inputs])
+
+            with torch.no_grad():
+                if isinstance(models, list):
+                    batch_predictions = []
+                    for model in models:
+                        model_preds = get_prediction(model, augmented_inputs, device)
+                        if isinstance(model_preds, np.ndarray):
+                            model_preds = torch.tensor(model_preds)
+                        batch_predictions.append(model_preds)
+                    
+                    stacked_preds = torch.stack(batch_predictions, dim=0)
+                    # Average predictions for each sample in the batch across models
+                    predictions = torch.mean(stacked_preds, dim=0) 
+                else: 
+                    predictions = get_prediction(models, augmented_inputs, device)
+            tta_predictions.extend(predictions)
+        all_augmentations.append(torch.tensor(tta_predictions))
+    global_preds = torch.stack(all_augmentations, dim=1)
+    std = torch.std(global_preds, dim=1).tolist() 
     
-    return tta_predictions, std
+    return global_preds, std
 
 def ensembling_predictions(models, image):
     ensembling_predictions = [get_prediction(model, image) for model in models]
     
     return ensembling_predictions
     
-def distance_to_gold_standard_computation(predictions):
+def distance_to_hard_labels_computation(predictions):
     distances = [0.5 - abs(pred - 0.5) for pred in predictions]
     
     return distances
@@ -53,19 +72,14 @@ def ensembling_stds_computation(models_predictions):
     
     return stds
     
-
 def plot_calibration_curve(y_true, y_prob):
-    # Calculate the calibration curve
     prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=10, strategy='uniform')
     
     return prob_true, prob_pred
         
 def model_calibration_plot(true_labels, predictions):
     plt.figure(figsize=(10, 8))
-
     plt.plot([0, 1], [0, 1], 'k--', label='Perfectly Calibrated')
-    i = 0
-
     prob_true, prob_pred = plot_calibration_curve(np.array(true_labels), np.array(predictions))
     plt.plot(prob_pred, prob_true, marker='o', label=f'Model Calibration Curve')
     plt.xlabel('Predicted Probability')
@@ -89,7 +103,7 @@ def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title):
     # Show the plot
     plt.title(title)
     plt.show()
-    
+
 def roc_curve_UQ_method_computation(correct_predictions, incorrect_predictions):
     failures_gstd = np.ones(len(incorrect_predictions))
     success_gstd = np.zeros(len(correct_predictions))
@@ -209,8 +223,6 @@ def apply_policy_and_get_predictions(data_loader, models, augment_transform, dev
     for i, batch in enumerate(data_loader):
         inputs = batch['image']
         augmented_inputs = torch.stack([augment_transform(image) for image in inputs])
-        labels = batch['shape']  # Extract the label (you can move this to GPU if needed)
-        names = batch['name']  # Extract the image names
 
         with torch.no_grad():
             if isinstance(models, list):
@@ -228,3 +240,108 @@ def apply_policy_and_get_predictions(data_loader, models, augment_transform, dev
     
     # Return the results as a numpy array (shape: [num_samples, 1] for binary, [num_samples, num_classes] for multi-class)
     return np.array(results)
+
+def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only):
+    """
+    A single greedy search instance that starts from a random initial augmentation (initial_aug_idx).
+    """
+    group_indices = [initial_aug_idx]  # Initialize with the given augmentation
+
+    for new_member_i in range(select_only):
+        print(f"Evaluating policy {new_member_i+1}/{select_only}...", flush=True)
+        best_metric = -np.inf
+        best_s = None
+
+        # Evaluate standard deviation of augmentations for success vs failure classification
+        for new_i in range(val_preds.shape[0]):
+            if new_i in group_indices:
+                continue
+
+            current_augmentations = group_indices + [new_i]  # Add new augmentation to the selected group
+            preds_std = np.std(val_preds[current_augmentations, :, :], axis=0)
+
+            # Compute ROC AUC for the current set of augmentations
+            roc_auc = roc_curve_UQ_method_computation(
+                [preds_std[k] for k in good_idx], 
+                [preds_std[j] for j in bad_idx]
+            )[2]
+
+            if roc_auc > 0.5 and roc_auc > best_metric:
+                best_s = new_i
+                best_metric = roc_auc
+
+        group_indices.append(best_s)
+        print(f"Selected Policy {best_s}: roc_auc={best_metric:.4f}")
+
+    return best_metric, group_indices
+
+def select_greedily_on_ens(all_preds, good_idx, bad_idx, search_set_len, select_only=50, num_workers=1, num_searches=10):
+    """
+    Run multiple greedy search processes in parallel and select the best result based on the metric.
+    """
+    val_preds = all_preds[:, :search_set_len, :]
+
+    # Initialize a multiprocessing pool for parallel execution
+    pool = multiprocessing.Pool(processes=num_workers)
+
+    # Run multiple greedy searches with different initializations in parallel
+    initial_augmentations = [np.random.choice(range(val_preds.shape[0])) for _ in range(num_searches)]
+    results = pool.starmap(greedy_search, [(initial_aug, val_preds, good_idx, bad_idx, select_only) for initial_aug in initial_augmentations])
+
+    pool.close()
+    pool.join()
+
+    # Select the best result based on the ROC AUC metric
+    best_result = max(results, key=lambda x: x[0])  # Select based on the best metric (ROC AUC)
+    best_metric, best_group_indices = best_result
+
+    print("\nParallel greedy search complete. Best metric:", best_metric)
+    return np.array(best_group_indices)
+
+def load_npz_files_for_greedy_search(npz_dir):
+    """
+    Load all .npz files from the specified directory.
+    Return the predictions stacked for each policy and corresponding filenames.
+    """
+    npz_files = [f for f in os.listdir(npz_dir) if f.endswith('.npz')]
+    all_preds = []
+    all_keys = []
+
+    # Load the predictions from each .npz file
+    for npz_file in npz_files:
+        file_path = os.path.join(npz_dir, npz_file)
+        try:
+            data = np.load(file_path)
+            preds = data['predictions']
+            all_preds.append(preds)
+            all_keys.append(npz_file)  # Use the filename (or another key) as the identifier for the policy
+        except Exception as e:
+            print(f"Error loading {npz_file}: {e}")
+
+    all_preds = np.array(all_preds)  # Shape: [num_policies, num_samples, num_classes]
+    return all_preds, all_keys
+
+def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, select_by='roc_auc', select_only=50, num_workers=1, num_searches=10):
+    """
+    Perform parallel greedy policy search using the select_greedily_on_ens function.
+    Loads .npz files, aggregates predictions, and performs policy search.
+    """
+    print('load predictions')
+    # Step 1: Load the .npz files containing predictions
+    all_preds, all_keys = load_npz_files_for_greedy_search(npz_dir)
+    search_set_len = all_preds[0].size
+
+    # Step 3: Call the `select_greedily_on_ens` function with loaded predictions
+    selected_policies = select_greedily_on_ens(
+        all_preds,  # Predictions from npz files
+        good_idx,
+        bad_idx,
+        search_set_len=search_set_len,
+        select_only=select_only,  # Size of the dataset to be used for searching
+        num_workers=num_workers,  # Number of workers for parallel processing
+        num_searches=num_searches  # Number of parallel greedy search processes
+    )
+
+    # Return the selected policies and their corresponding names
+    selected_policy_names = [all_keys[i] for i in selected_policies]
+    return selected_policy_names
