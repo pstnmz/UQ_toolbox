@@ -25,6 +25,18 @@ def get_prediction(model, image, device):
     prediction = model(image).cpu().detach().numpy()
     return prediction
 
+def TTA_test(transforms, models, image, device, nb_augmentations=10):
+    plt.close('all')
+    if isinstance(models, list):
+        tta_predictions = [np.mean([get_prediction(model, transforms(image), device) for model in models]) for _ in range(nb_augmentations)]
+    else: 
+        tta_predictions = [get_prediction(models, transforms(image), device) for _ in range(nb_augmentations)]
+    
+    std = np.std(tta_predictions)  
+    
+    return tta_predictions, std
+
+
 def TTA(transforms, models, data_loader, device, nb_augmentations=10, usingBetterRandAugment=False, policies=None):
     all_augmentations = []
     
