@@ -25,49 +25,50 @@ def get_prediction(model, image, device):
     prediction = model(image).cpu().detach().numpy()
     return prediction
 
-def TTA_test(transforms, models, image, device, nb_augmentations=10):
-    plt.close('all')
-    if isinstance(models, list):
-        tta_predictions = [np.mean([get_prediction(model, transforms(image), device) for model in models]) for _ in range(nb_augmentations)]
-    else: 
-        tta_predictions = [get_prediction(models, transforms(image), device) for _ in range(nb_augmentations)]
-    
-    std = np.std(tta_predictions)  
-    
-    return tta_predictions, std
-
 
 def TTA(transforms, models, data_loader, device, nb_augmentations=10, usingBetterRandAugment=False, policies=None):
-    all_augmentations = []
-    
-    for _ in range(nb_augmentations):
-        print(_)
-        tta_predictions = []
-        # Predict for each sample in the test set
-        for i, batch in enumerate(data_loader):
-            inputs = batch['image']
-            augmented_inputs = torch.stack([transforms(image) for image in inputs])
+    tta_predictions = []
 
-            with torch.no_grad():
-                if isinstance(models, list):
-                    batch_predictions = []
-                    for model in models:
-                        model_preds = get_prediction(model, augmented_inputs, device)
-                        if isinstance(model_preds, np.ndarray):
-                            model_preds = torch.tensor(model_preds)
-                        batch_predictions.append(model_preds)
-                    
-                    stacked_preds = torch.stack(batch_predictions, dim=0)
-                    # Average predictions for each sample in the batch across models
-                    predictions = torch.mean(stacked_preds, dim=0) 
-                else: 
-                    predictions = get_prediction(models, augmented_inputs, device)
-            tta_predictions.extend(predictions)
-        all_augmentations.append(torch.tensor(tta_predictions))
-    global_preds = torch.stack(all_augmentations, dim=1)
-    std = torch.std(global_preds, dim=1).tolist() 
+    with torch.no_grad():
+        for batch in data_loader:
+            inputs = batch['image']  # Get the batch of images
+            
+            # Apply the specified number of augmentations per image and stack them
+            augmented_inputs = torch.stack(
+                [torch.stack([transforms(image) for _ in range(nb_augmentations)]) for image in inputs], 
+                dim=0
+            )  # Shape: [batch_size, num_augmentations, C, H, W]
+            
+            # Reshape augmented_inputs to combine the batch and augmentation dimensions
+            augmented_inputs = augmented_inputs.view(-1, *augmented_inputs.shape[2:])  # Shape: [batch_size * num_augmentations, C, H, W]
+            if isinstance(models, list):
+                # Perform predictions for the augmented inputs (batch-wise)
+                batch_predictions = [
+                    torch.tensor(get_prediction(model, augmented_inputs, device)) for model in models
+                ]
+            else:
+                batch_predictions = [torch.tensor(get_prediction(models, augmented_inputs, device))]
+            
+            # Stack predictions from different models
+            batch_predictions = torch.stack(batch_predictions, dim=0)  # Shape: [num_models, batch_size * num_augmentations, num_classes]
+            
+            # Average predictions across models (keeping augmentations separate)
+            averaged_predictions = torch.mean(batch_predictions, dim=0)  # Shape: [batch_size * num_augmentations, num_classes]
+
+            # Reshape averaged_predictions to group augmentations back with their respective images
+            averaged_predictions = averaged_predictions.view(inputs.size(0), nb_augmentations, -1)  # Shape: [batch_size, num_augmentations, num_classes]
+
+            # Collect predictions
+            tta_predictions.append(averaged_predictions)
+
+    # Stack all predictions together
+    global_preds = torch.cat(tta_predictions, dim=0)  # Shape: [total_images, num_augmentations, num_classes]
+
+    # Compute standard deviation across the augmentations for each image
+    stds = torch.std(global_preds, dim=1).squeeze().tolist()  # Shape: [total_images, num_classes]
     
-    return global_preds, std
+    return stds, global_preds
+
 
 def ensembling_predictions(models, image):
     ensembling_predictions = [get_prediction(model, image) for model in models]
@@ -188,14 +189,12 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
         if batch_norm is False:
             if bw is True:
                 augment_transform = transforms.Compose([
-                    AddBatchDimension(),
                     transforms.ToPILImage(),
                     to_3_channels,
                     BetterRandAugment(2, 45, True, False, verbose=True),
                     to_1_channel,
                     transforms.PILToTensor(),
-                    transforms.ConvertImageDtype(torch.float),  # Convert to float
-                    transforms.Lambda(lambda x: x * 255.0),
+                    transforms.Lambda(lambda x: x.float()), 
                     transforms.Normalize(mean=mean, std=std)
                 ])
             else:
@@ -203,7 +202,6 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
                     transforms.ToPILImage(),
                     BetterRandAugment(N, M, True, False, verbose=True),
                     transforms.PILToTensor(),
-                    AddBatchDimension(),
                     transforms.Normalize(mean=mean, std=std)
                 ])
         else:
@@ -217,7 +215,7 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
         predictions = apply_policy_and_get_predictions(data_loader, models, augment_transform, device, binary_classification=binary_classification)
         
         # Store the results in the dictionary with a unique key for each random policy
-        policy_key = str(augment_transform.transforms[3].get_transform())
+        policy_key = str(augment_transform.transforms[2].get_transform())
         results_dict[policy_key] = predictions
         
         # Saving results in a .npz file in the 'savedpolicies' folder
@@ -232,7 +230,7 @@ def apply_policy_and_get_predictions(data_loader, models, augment_transform, dev
     results = []
     
     # Predict for each sample in the test set
-    for i, batch in enumerate(data_loader):
+    for batch in data_loader:
         inputs = batch['image']
         augmented_inputs = torch.stack([augment_transform(image) for image in inputs])
 
