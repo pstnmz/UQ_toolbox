@@ -186,7 +186,8 @@ def augment_list():  # 16 oeprations and their ranges
 class BetterRandAugment:
     def __init__(self, n, m, rand_m=False, resample=True, verbose=False, transform=None, true_m0=False, randomize_sign=True, used_transforms=None):
         self.n = n
-        self.m = m      # [0, 30]
+        self.m = m
+        self.max_magnitude = m
         self.rand_m = rand_m
         self.augment_list = augment_list()
         self.verbose = verbose
@@ -255,6 +256,6 @@ class BetterRandAugment:
                     m *= -1
             if op.__name__ not in ['Contrast', 'Color', 'Brightness', 'Sharpness']:
                 m = np.abs(m)
-            val = (m / 30) * float(maxval - minval) + minval
+            val = (m / self.max_magnitude) * float(maxval - minval) + minval
             img = op(img, val)
         return img

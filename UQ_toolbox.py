@@ -73,7 +73,7 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
                         [transforms.Compose([
                             transforms.ToPILImage(),
                             to_3_channels if bw else None,  # Use * to unpack only if `bw=True`
-                            BetterRandAugment(n=n, m=m, resample=False, transform=policy),
+                            BetterRandAugment(n=n, m=m, resample=False, transform=policy, verbose=True, randomize_sign=False),
                             to_1_channel if bw else None,
                             transforms.PILToTensor(),
                             transforms.Lambda(lambda x: x.float()) if bw else transforms.ConvertImageDtype(torch.float),
@@ -238,30 +238,15 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
     os.makedirs('savedpolicies', exist_ok=True)
     for i in range(num_policies):
         print(f'augmentation n:{i}')
-        if batch_norm is False:
-            if bw is True:
-                augment_transform = transforms.Compose([
-                    transforms.ToPILImage(),
-                    to_3_channels,
-                    BetterRandAugment(N, M, True, False, verbose=True),
-                    to_1_channel,
-                    transforms.PILToTensor(),
-                    transforms.Lambda(lambda x: x.float()), 
-                    transforms.Normalize(mean=mean, std=std)
-                ])
-            else:
-                augment_transform = transforms.Compose([
-                    transforms.ToPILImage(),
-                    BetterRandAugment(N, M, True, False, verbose=True),
-                    transforms.PILToTensor(),
-                    transforms.Normalize(mean=mean, std=std)
-                ])
-        else:
-            # Initialize BetterRandAugment with given N and M (random augmentations applied)
-            augment_transform = transforms.Compose([
-                transforms.ToPILImage(),
-                BetterRandAugment(n=N, m=M)
-            ])
+        
+        augment_transform = transforms.Compose([
+                                transforms.ToPILImage(),
+                                to_3_channels if bw else None,  # Use * to unpack only if `bw=True`
+                                BetterRandAugment(N, M, True, False, randomize_sign=False),
+                                to_1_channel if bw else None,
+                                transforms.PILToTensor(),
+                                transforms.Lambda(lambda x: x.float()) if bw else transforms.ConvertImageDtype(torch.float),
+                                transforms.Normalize(mean=mean, std=std)])
         
         # Apply the policy and get the predictions
         predictions = apply_policy_and_get_predictions(data_loader, models, augment_transform, device, binary_classification=binary_classification)
@@ -303,7 +288,7 @@ def apply_policy_and_get_predictions(data_loader, models, augment_transform, dev
     # Return the results as a numpy array (shape: [num_samples, 1] for binary, [num_samples, num_classes] for multi-class)
     return np.array(results)
 
-def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only):
+def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, min_improvement=0.01, patience=5):
     """
     A single greedy search instance that starts from a random initial augmentation (initial_aug_idx).
     Returns the best augmentations based on the maximum ROC AUC achieved.
@@ -313,6 +298,7 @@ def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only):
     best_group_indices = list(group_indices)  # Track the augmentations that give the best ROC AUC
 
     all_roc_aucs = []  # Store the AUCs for plotting
+    no_improvement_count = 0  # Track consecutive iterations with insufficient improvement
     for new_member_i in range(select_only):
         print(f"Evaluating policy {new_member_i+1}/{select_only}...", flush=True)
         best_iteration_metric = -np.inf
@@ -345,6 +331,18 @@ def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only):
         if best_iteration_metric > best_metric:
             best_metric = best_iteration_metric
             best_group_indices = list(group_indices)  # Copy the best augmentations so far
+            
+        # Calculate improvement and check early stopping
+        improvement = best_iteration_metric - best_metric
+        if improvement > min_improvement:
+            no_improvement_count = 0  # Reset the counter
+        else:
+            no_improvement_count += 1
+
+        # Stop if there is no significant improvement for `patience` consecutive iterations
+        if no_improvement_count >= patience:
+            print(f"Early stopping at iteration {new_member_i + 1} due to no improvement > {min_improvement} in last {patience} iterations.")
+            break
 
     return best_metric, best_group_indices, all_roc_aucs
 
