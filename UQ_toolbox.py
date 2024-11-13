@@ -288,7 +288,7 @@ def apply_policy_and_get_predictions(data_loader, models, augment_transform, dev
     # Return the results as a numpy array (shape: [num_samples, 1] for binary, [num_samples, num_classes] for multi-class)
     return np.array(results)
 
-def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, min_improvement=0.01, patience=5):
+def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, min_improvement=0.005, patience=5):
     """
     A single greedy search instance that starts from a random initial augmentation (initial_aug_idx).
     Returns the best augmentations based on the maximum ROC AUC achieved.
@@ -321,19 +321,9 @@ def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, mi
             if roc_auc > 0.5 and roc_auc > best_iteration_metric:
                 best_s = new_i
                 best_iteration_metric = roc_auc
-
-        # Update group indices and store the AUC for the current iteration
-        group_indices.append(best_s)
-        all_roc_aucs.append(best_iteration_metric)
-        print(f"Selected Policy {best_s}: roc_auc={best_iteration_metric:.4f}")
-
-        # Track the best augmentations and metric so far
-        if best_iteration_metric > best_metric:
-            best_metric = best_iteration_metric
-            best_group_indices = list(group_indices)  # Copy the best augmentations so far
             
         # Calculate improvement and check early stopping
-        improvement = best_iteration_metric - best_metric
+        improvement = best_iteration_metric - all_roc_aucs[-1] if len(all_roc_aucs) > 1 else 0
         if improvement > min_improvement:
             no_improvement_count = 0  # Reset the counter
         else:
@@ -343,6 +333,16 @@ def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, mi
         if no_improvement_count >= patience:
             print(f"Early stopping at iteration {new_member_i + 1} due to no improvement > {min_improvement} in last {patience} iterations.")
             break
+        
+        # Track the best augmentations and metric so far
+        if best_iteration_metric > best_metric:
+            best_metric = best_iteration_metric
+            best_group_indices = list(group_indices)  # Copy the best augmentations so far
+        
+        # Update group indices and store the AUC for the current iteration
+        group_indices.append(best_s)
+        all_roc_aucs.append(best_iteration_metric)
+        print(f"Selected Policy {best_s}: roc_auc={best_iteration_metric:.4f}")
 
     return best_metric, best_group_indices, all_roc_aucs
 
