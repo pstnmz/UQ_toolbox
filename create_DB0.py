@@ -281,11 +281,11 @@ def create_n_instances(a_im, a_ma, a_ma_bb):
     a_ma_bb_rotated[a_ma_bb_rotated > 0.1] = 1
     a_ma_bb_rotated[a_ma_bb_rotated <=0.1] = 0
     new_image = nib.Nifti1Image(a_im_rotated, affine=rotated_affine)
-    new_mask = nib.Nifti1Image(resegment_thresholding(np.array(a_im_rotated.get()), np.array(a_ma_rotated.get())), affine=ma_rotated_affine)
+    new_mask = nib.Nifti1Image(a_ma_rotated, affine=ma_rotated_affine)
     new_mask_bb = nib.Nifti1Image(a_ma_bb_rotated, affine=ma_bb_rotated_affine)
 
     final_rot_image = cp.float32(new_image.dataobj.get())
-    final_rot_mask = cp.float32(new_mask.dataobj)
+    final_rot_mask = cp.float32(new_mask.dataobj.get())
     final_rot_mask_bb = cp.float32(new_mask_bb.dataobj.get())
     final_rot_mask = remove_out_of_box_mask(final_rot_mask, np.ma.masked_equal(final_rot_mask_bb, 0))
 
@@ -298,40 +298,27 @@ def create_n_instances(a_im, a_ma, a_ma_bb):
 
 if __name__ == "__main__":
     with cp.cuda.Device(0):
-        path_data = "/mnt/data/ffrouin/NEOTEX/DATA_NIFTI/DataMerged/"
-        list_cases = os.listdir(path_data)[:40]
+        path_data_glob = "/mnt/data/psteinmetz/neotex/to_process/Ozgun/"
+        list_cases = os.listdir(path_data_glob)[:30]
         log = {}
         count = 1
         for case in list_cases:
             if '.' not in case:
                 print(case)
-                path_data = f"/mnt/data/ffrouin/NEOTEX/DATA_NIFTI/DataMerged/{str(case)}"
-                if case!='39':
-                    image_path_sub = glob.glob(
-                        f'{path_data}/RawVolume/*substracted*_Bspline_zscore_without_tumour.nii.gz'
-                    )
-                    image_path_dyn = glob.glob(
-                        f'{path_data}/RawVolume/*dyn1*_Bspline_zscore_without_tumour.nii.gz'
-                    )
-                else:
-                    image_path_sub = glob.glob(
-                        f'{path_data}/RawVolume/*dyn1*_Bspline_zscore_without_tumour.nii.gz'
-                    )
-                mask_bb_path = glob.glob(f'{path_data}/RoiVolume/Bounding_box.nii.gz')
-                if case == '72':
-                    mask_path = glob.glob('/mnt/data/psteinmetz/C1_volume_resampled_NN.uint16.nii.gz')
-                else:
-                    mask_path = glob.glob(f'{path_data}/RoiVolume/C1_volume_resampled_NN.nii.gz')
+                path_data = f"{path_data_glob}{str(case)}"
+                
+                image_path_sub = glob.glob(
+                    f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                )
+
+                mask_bb_path = glob.glob(f'{path_data}/RoiVolume/VOI_bb.nii.gz')
+                mask_path = glob.glob(f'{path_data}/RoiVolume/VOI_morphoclosing.nii.gz')
+
 
                 mask_bb = nib.load(mask_bb_path[0])
                 mask = nib.load(mask_path[0])
-                if case!='39':
-                    image_sub = nib.load(image_path_sub[0])
-                    image_dyn = nib.load(image_path_dyn[0])
-                    x = check_registration(image_sub, image_dyn)
-                    image = image_sub if x is True else image_dyn
-                else:
-                    image = nib.load(image_path_sub[0])
+       
+                image = nib.load(image_path_sub[0])
 
                 a_im = nib.Nifti1Image(check_orientation(image, np.array(image.dataobj)), affine=image.affine)
                 a_ma = check_orientation(mask, np.array(mask.dataobj))
@@ -367,30 +354,30 @@ if __name__ == "__main__":
                         im_to_save = Image.fromarray(rescale_to_255(final_rot_image[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1], min_val, max_val))
                         im_to_save = im_to_save.convert("L")
                         log[f"{case}_{str(j)}"] = (dice, gamma, alpha, beta)
-                        with open(f'/mnt/data/psteinmetz/neotex/data_CNN/images_15062024/Arrays/{case}_{str(j)}.npy', 'wb') as f:
+                        with open(f'/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/Arrays/{case}_{str(j)}.npy', 'wb') as f:
                             np.save(f, final_rot_image[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1])
                             np.save(f, final_rot_mask[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1])
 
                         if dice > 0.9:
                             print('Round !')
                             im_to_save.save(
-                                f"/mnt/data/psteinmetz/neotex/data_CNN/images_15062024/Round/{case}_{str(j)}"
+                                f"/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/Round/{case}_{str(j)}"
                                 + ".png"
                             )
                         elif 0.8 < dice <=0.9:
                             print('Ambiguous !')
                             im_to_save.save(
-                                f"/mnt/data/psteinmetz/neotex/data_CNN/images_15062024/Ambiguous/{case}_{str(j)}"
+                                f"/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/Ambiguous/{case}_{str(j)}"
                                 + ".png"
                             )
                         else:
                             print('Irregular !')
                             im_to_save.save(
-                                f"/mnt/data/psteinmetz/neotex/data_CNN/images_15062024/Irregular/{case}_{str(j)}"
+                                f"/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/Irregular/{case}_{str(j)}"
                                 + ".png"
                             )
 
                         j = j+1
                     count = count+1
-        with open('/mnt/data/psteinmetz/neotex/data_CNN/images_15062024/log0.pickle', 'wb') as handle:
+        with open('/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/log0.pickle', 'wb') as handle:
             pickle.dump(log, handle, protocol=pickle.HIGHEST_PROTOCOL)
