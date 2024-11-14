@@ -264,7 +264,7 @@ def random_slice_selection(rotated_image, rotated_mask, rotated_bb, biggest_cut_
     return x, dice, cont_ellipse
 
 
-def create_n_instances(a_im, a_ma, a_ma_bb):
+def create_n_instances(a_im, a_ma, a_ma_bb, thresh):
     gamma = random.uniform(np.deg2rad(0), np.deg2rad(360))
     alpha = random.uniform(np.deg2rad(0), np.deg2rad(360))
     beta = random.uniform(np.deg2rad(0), np.deg2rad(360))
@@ -281,7 +281,9 @@ def create_n_instances(a_im, a_ma, a_ma_bb):
     a_ma_bb_rotated[a_ma_bb_rotated > 0.1] = 1
     a_ma_bb_rotated[a_ma_bb_rotated <=0.1] = 0
     new_image = nib.Nifti1Image(a_im_rotated, affine=rotated_affine)
-    new_mask = nib.Nifti1Image(a_ma_rotated, affine=ma_rotated_affine)
+    if thresh is True:
+        a_ma_rotated = resegment_thresholding(np.array(a_im_rotated.get()), np.array(a_ma_rotated.get()), thresh=0.1)
+    new_mask = nib.Nifti1Image(ndimage.binary_fill_holes(a_ma_rotated).astype(np.uint8), affine=ma_rotated_affine)
     new_mask_bb = nib.Nifti1Image(a_ma_bb_rotated, affine=ma_bb_rotated_affine)
 
     final_rot_image = cp.float32(new_image.dataobj.get())
@@ -297,7 +299,7 @@ def create_n_instances(a_im, a_ma, a_ma_bb):
 
 
 if __name__ == "__main__":
-    with cp.cuda.Device(1):
+    with cp.cuda.Device(2):
         path_data_glob = "/mnt/data/psteinmetz/neotex/to_process/Ozgun/"
         list_cases = os.listdir(path_data_glob)[30:]
         log = {}
@@ -306,15 +308,20 @@ if __name__ == "__main__":
             if '.' not in case:
                 print(case)
                 path_data = f"{path_data_glob}{str(case)}"
-                
-                image_path_sub = glob.glob(
-                    f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
-                )
+                if case !='160':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI_morphoclosing.nii.gz')
+                    thresh=False
+                else:
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*dyn1_bias_corrected_1_resampled_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=True
 
                 mask_bb_path = glob.glob(f'{path_data}/RoiVolume/VOI_bb.nii.gz')
-                mask_path = glob.glob(f'{path_data}/RoiVolume/VOI_morphoclosing.nii.gz')
-
-
                 mask_bb = nib.load(mask_bb_path[0])
                 mask = nib.load(mask_path[0])
        
@@ -330,7 +337,7 @@ if __name__ == "__main__":
                 j = 0
                 for i in range(50):
                     print(f'slice {str(i)} {str(count)}/{str((len(list_cases) - 2) * 50)}')
-                    final_rot_image, final_rot_mask, final_rot_mask_bb, slice_nb, dice, cont_ellipse, gamma, alpha, beta = create_n_instances(a_im, a_ma, a_ma_bb)
+                    final_rot_image, final_rot_mask, final_rot_mask_bb, slice_nb, dice, cont_ellipse, gamma, alpha, beta = create_n_instances(a_im, a_ma, a_ma_bb, thresh)
                     if cont_ellipse is None:
                         print('wrong slice')
                     else:
@@ -354,9 +361,10 @@ if __name__ == "__main__":
                         im_to_save = Image.fromarray(rescale_to_255(final_rot_image[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1], min_val, max_val))
                         im_to_save = im_to_save.convert("L")
                         log[f"{case}_{str(j)}"] = (dice, gamma, alpha, beta)
-                        with open(f'/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/Arrays/{case}_{str(j)}.npy', 'wb') as f:
-                            np.save(f, final_rot_image[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1])
-                            np.save(f, final_rot_mask[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1])
+                        with open(f'/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/Arrays/{case}_{str(j)}_im.npy', 'wb') as f1:
+                            np.save(f1, final_rot_image[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1])
+                        with open(f'/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/Arrays/{case}_{str(j)}_ma.npy', 'wb') as f2:
+                            np.save(f2, final_rot_mask[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1])
 
                         if dice > 0.9:
                             print('Round !')

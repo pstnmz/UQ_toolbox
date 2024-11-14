@@ -281,7 +281,7 @@ def create_n_instances(a_im, a_ma, a_ma_bb):
     a_ma_bb_rotated[a_ma_bb_rotated > 0.1] = 1
     a_ma_bb_rotated[a_ma_bb_rotated <=0.1] = 0
     new_image = nib.Nifti1Image(a_im_rotated, affine=rotated_affine)
-    new_mask = nib.Nifti1Image(a_ma_rotated, affine=ma_rotated_affine)
+    new_mask = nib.Nifti1Image(ndimage.binary_fill_holes(a_ma_rotated).astype(np.uint8), affine=ma_rotated_affine)
     new_mask_bb = nib.Nifti1Image(a_ma_bb_rotated, affine=ma_bb_rotated_affine)
 
     final_rot_image = cp.float32(new_image.dataobj.get())
@@ -354,9 +354,11 @@ if __name__ == "__main__":
                         im_to_save = Image.fromarray(rescale_to_255(final_rot_image[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1], min_val, max_val))
                         im_to_save = im_to_save.convert("L")
                         log[f"{case}_{str(j)}"] = (dice, gamma, alpha, beta)
-                        with open(f'/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/Arrays/{case}_{str(j)}.npy', 'wb') as f:
-                            np.save(f, final_rot_image[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1])
-                            np.save(f, final_rot_mask[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1])
+                        
+                        with open(f'/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/Arrays/{case}_{str(j)}_im.npy', 'wb') as f1:
+                            np.save(f1, final_rot_image[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1])
+                        with open(f'/mnt/data/psteinmetz/neotex/data_CNN/images_Ozgun_for_calibration/Arrays/{case}_{str(j)}_ma.npy', 'wb') as f2:
+                            np.save(f2, final_rot_mask[slice_nb, y_min_iso:y_max_iso+1, z_min_iso:z_max_iso+1])
 
                         if dice > 0.9:
                             print('Round !')
