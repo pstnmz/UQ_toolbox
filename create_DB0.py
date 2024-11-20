@@ -264,7 +264,7 @@ def random_slice_selection(rotated_image, rotated_mask, rotated_bb, biggest_cut_
     return x, dice, cont_ellipse
 
 
-def create_n_instances(a_im, a_ma, a_ma_bb):
+def create_n_instances(a_im, a_ma, a_ma_bb, thresh):
     gamma = random.uniform(np.deg2rad(0), np.deg2rad(360))
     alpha = random.uniform(np.deg2rad(0), np.deg2rad(360))
     beta = random.uniform(np.deg2rad(0), np.deg2rad(360))
@@ -281,7 +281,9 @@ def create_n_instances(a_im, a_ma, a_ma_bb):
     a_ma_bb_rotated[a_ma_bb_rotated > 0.1] = 1
     a_ma_bb_rotated[a_ma_bb_rotated <=0.1] = 0
     new_image = nib.Nifti1Image(a_im_rotated, affine=rotated_affine)
-    new_mask = nib.Nifti1Image(ndimage.binary_fill_holes(a_ma_rotated).astype(np.uint8), affine=ma_rotated_affine)
+    if thresh is not None:
+        a_ma_rotated = resegment_thresholding(np.array(a_im_rotated.get()), np.array(a_ma_rotated.get()), thresh=thresh)
+    new_mask = nib.Nifti1Image(ndimage.binary_fill_holes(cp.array(a_ma_rotated)).astype(np.uint8), affine=ma_rotated_affine)
     new_mask_bb = nib.Nifti1Image(a_ma_bb_rotated, affine=ma_bb_rotated_affine)
 
     final_rot_image = cp.float32(new_image.dataobj.get())
@@ -306,15 +308,146 @@ if __name__ == "__main__":
             if '.' not in case:
                 print(case)
                 path_data = f"{path_data_glob}{str(case)}"
-                
-                image_path_sub = glob.glob(
-                    f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
-                )
+                if case =='160':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*dyn1_bias_corrected_1_resampled_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.1
+                elif case == '159':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.1
+                elif case == '165':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '168':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '169':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '176':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '177':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '181':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '186':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '196':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.uint16.nii.gz')
+                    thresh=0.15
+                elif case == '197':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.1
+                elif case == '200':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '201':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '202':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case =='206':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*dyn1_bias_corrected_1_resampled_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.4
+                elif case == '209':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case =='210':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*dyn1_bias_corrected_1_resampled_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.35
+                elif case == '212':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '213':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '214':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '221':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.2
+                elif case == '220':
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*dyn1_bias_corrected_1_resampled_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI.nii.gz')
+                    thresh=0.4
+                else:
+                    image_path_sub = glob.glob(
+                        f'{path_data}/RawVolume/*subtracted*_Bspline_zscore.nii.gz'
+                    )
+                    mask_path = glob.glob(f'{path_data}/RoiVolume/VOI_morphoclosing.nii.gz')
+                    thresh=None
 
                 mask_bb_path = glob.glob(f'{path_data}/RoiVolume/VOI_bb.nii.gz')
-                mask_path = glob.glob(f'{path_data}/RoiVolume/VOI_morphoclosing.nii.gz')
-
-
                 mask_bb = nib.load(mask_bb_path[0])
                 mask = nib.load(mask_path[0])
        
@@ -330,7 +463,7 @@ if __name__ == "__main__":
                 j = 0
                 for i in range(50):
                     print(f'slice {str(i)} {str(count)}/{str((len(list_cases) - 2) * 50)}')
-                    final_rot_image, final_rot_mask, final_rot_mask_bb, slice_nb, dice, cont_ellipse, gamma, alpha, beta = create_n_instances(a_im, a_ma, a_ma_bb)
+                    final_rot_image, final_rot_mask, final_rot_mask_bb, slice_nb, dice, cont_ellipse, gamma, alpha, beta = create_n_instances(a_im, a_ma, a_ma_bb, thresh)
                     if cont_ellipse is None:
                         print('wrong slice')
                     else:
