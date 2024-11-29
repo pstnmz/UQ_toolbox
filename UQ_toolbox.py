@@ -288,7 +288,7 @@ def apply_policy_and_get_predictions(data_loader, models, augment_transform, dev
     # Return the results as a numpy array (shape: [num_samples, 1] for binary, [num_samples, num_classes] for multi-class)
     return np.array(results)
 
-def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, min_improvement=0.005, patience=5):
+def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, min_improvement=0.005, patience=6):
     """
     A single greedy search instance that starts from a random initial augmentation (initial_aug_idx).
     Returns the best augmentations based on the maximum ROC AUC achieved.
