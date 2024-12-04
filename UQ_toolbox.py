@@ -165,6 +165,7 @@ def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title):
     # Create the boxplot
     sns.boxplot(x='Category', y=y_title, data=df, palette='muted')
     sns.swarmplot(x='Category', y=y_title, data=df, color='k', alpha=0.3)
+    
     # Show the plot
     plt.title(title)
     plt.show()
