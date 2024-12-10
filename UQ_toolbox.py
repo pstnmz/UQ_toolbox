@@ -11,6 +11,7 @@ import re
 import random
 from torchvision import transforms
 import torch.nn.functional as F
+from collections import defaultdict
 from gps_augment.utils.randaugment import BetterRandAugment
 
 class AddBatchDimension:
@@ -264,6 +265,90 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
     
     return results_dict, dict_name
 
+def group_and_merge_similar_augmentations(policies, tolerance=0.1):
+    """
+    Group similar augmentations based on type and magnitude closeness,
+    and merge them by averaging the magnitudes.
+
+    Parameters:
+    - policies: List of tuples [(type, magnitude), ...] representing augmentations.
+    - tolerance: Fraction of the max magnitude to define closeness in magnitudes.
+
+    Returns:
+    - merged_augmentations: List of tuples [(type, avg_magnitude), ...] with merged augmentations.
+    """
+    grouped_augmentations = defaultdict(list)
+    max_magnitude = 30  # Or use a dynamic max magnitude if it's variable.
+
+    for aug_type, magnitude in policies:
+        # Normalize magnitude for comparison
+        normalized_magnitude = magnitude / max_magnitude
+
+        # Check for similar augmentations in existing groups
+        added_to_group = False
+        for group_key, group in grouped_augmentations.items():
+            group_type, group_magnitude = group_key
+            if aug_type == group_type and abs(normalized_magnitude - group_magnitude) <= tolerance:
+                group.append(magnitude)
+                added_to_group = True
+                break
+
+        # If no similar group exists, create a new group
+        if not added_to_group:
+            grouped_augmentations[(aug_type, normalized_magnitude)] = [magnitude]
+
+    # Merge groups by averaging magnitudes
+    merged_augmentations = []
+    for (aug_type, _), magnitudes in grouped_augmentations.items():
+        avg_magnitude = np.mean(magnitudes)
+        merged_augmentations.append((aug_type, avg_magnitude))
+
+    return merged_augmentations
+
+
+def prioritize_and_merge_with_similarity(results, top_k=5, threshold=2, tolerance=0.1):
+    """
+    Prioritize augmentations from top-performing searches considering similarity,
+    and merge close augmentations by averaging magnitudes.
+
+    Parameters:
+    - results: List of tuples (best_metric, best_group_indices, all_roc_aucs) from parallel searches.
+    - top_k: Number of top-performing searches to consider.
+    - threshold: Minimum number of top searches in which an augmentation must appear to be retained.
+    - tolerance: Fraction of the max magnitude to define closeness in magnitudes.
+
+    Returns:
+    - prioritized_augmentations: List of merged augmentations [(type, avg_magnitude), ...].
+    """
+    # Sort results by the best_metric (ROC AUC) in descending order
+    sorted_results = sorted(results, key=lambda x: x[0], reverse=True)
+
+    # Select the top `k` performing searches
+    top_results = sorted_results[:top_k]
+
+    # Extract augmentations from the top searches
+    all_policies = []
+    for _, group_indices, _ in top_results:
+        all_policies.extend(group_indices)
+
+    # Group and merge similar augmentations
+    merged_augmentations = group_and_merge_similar_augmentations(all_policies, tolerance=tolerance)
+
+    # Count occurrences of merged augmentations across top searches
+    group_counter = defaultdict(int)
+    for aug_type, magnitude in all_policies:
+        for merged_type, merged_magnitude in merged_augmentations:
+            if aug_type == merged_type and abs(magnitude - merged_magnitude) <= (tolerance * 30):
+                group_counter[(merged_type, merged_magnitude)] += 1
+                break
+
+    # Retain merged augmentations that appear in at least `threshold` top searches
+    prioritized_augmentations = [
+        (aug_type, magnitude) for (aug_type, magnitude), count in group_counter.items() if count >= threshold
+    ]
+
+    return prioritized_augmentations
+
 def apply_policy_and_get_predictions(data_loader, models, augment_transform, device, binary_classification=False):
     results = []
     
@@ -367,7 +452,7 @@ def plot_auc_curves(results):
     plt.grid(True)
     plt.show()
     
-def select_greedily_on_ens(all_preds, good_idx, bad_idx, search_set_len, select_only=50, num_workers=1, num_searches=10):
+def select_greedily_on_ens(all_preds, good_idx, bad_idx, search_set_len, select_only=50, num_workers=1, num_searches=10, top_k=5, threshold=3, tolerance=0.1):
     """
     Run multiple greedy search processes in parallel and select the best result based on the metric.
     """
@@ -388,7 +473,13 @@ def select_greedily_on_ens(all_preds, good_idx, bad_idx, search_set_len, select_
     best_metric, best_group_indices, all_roc_aucs = best_result
 
     print("\nParallel greedy search complete. Best metric:", best_metric)
-    return np.array(best_group_indices), all_roc_aucs, results
+    # Prioritize policies from top-performing searches
+    prioritized_policies, top_scores = prioritize_and_merge_with_similarity(results, top_k=top_k, threshold=threshold, tolerance=tolerance)
+
+    print(f"Top {top_k} ROC AUC scores: {top_scores}")
+    print(f"Mutualized augmentations from top {top_k} searches: {prioritized_policies}")
+    
+    return np.array(best_group_indices), all_roc_aucs, results, prioritized_policies
 
 def load_npz_files_for_greedy_search(npz_dir):
     """
@@ -424,7 +515,7 @@ def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, select_by='roc_auc'
     search_set_len = all_preds[0].size
 
     # Step 3: Call the `select_greedily_on_ens` function with loaded predictions
-    selected_policies, all_roc_aucs, results = select_greedily_on_ens(
+    selected_policies, all_roc_aucs, results, mutualized_top_policies = select_greedily_on_ens(
         all_preds,  # Predictions from npz files
         good_idx,
         bad_idx,
@@ -439,4 +530,5 @@ def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, select_by='roc_auc'
 
     # Return the selected policies and their corresponding names
     selected_policy_names = [all_keys[i] for i in selected_policies]
-    return selected_policy_names
+    mutualized_top_policies_names = [all_keys[i] for i in mutualized_top_policies]
+    return selected_policy_names, mutualized_top_policies_names
