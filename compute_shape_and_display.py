@@ -601,7 +601,7 @@ def for_ellipse_creation(mask, features_extractor=None, image=None, method='RPCA
     
 path_cases = glob.glob('/mnt/data/psteinmetz/neotex/to_process/Baseline_data/*')
 results_glob = {}
-for case in path_cases[7:]:
+for case in path_cases[-14:]:
     results = {}
     print(case)
 
@@ -672,5 +672,5 @@ for case in path_cases[7:]:
                 }
                 results_glob.update({case + '_' + str(k): results})
                 print('PCA, {}, MCD {}, RPCA {}'.format(di, di_MCD, di_rpca))
-        with open('/mnt/data/psteinmetz/archive_notebooks/Documents/baseline_results1.pickle', 'wb') as handle:
+        with open('/mnt/data/psteinmetz/archive_notebooks/Documents/baseline_results2.pickle', 'wb') as handle:
             pkl.dump(results_glob, handle, protocol=pkl.HIGHEST_PROTOCOL)
