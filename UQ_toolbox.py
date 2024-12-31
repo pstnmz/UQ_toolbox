@@ -5,8 +5,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import os
-from dask import delayed, compute
-from dask.distributed import Client
+import multiprocessing
 import torch
 import re
 from torchvision import transforms
@@ -341,11 +340,6 @@ def group_and_merge_similar_augmentations(policies, keys):
                 "[" + ", ".join(f"({t}, {m})" for t, m in sorted(averaged_group, key=lambda x: x[0])) + "]"
             )
 
-    # Display the final result
-    print("Averaged Groups:")
-    for averaged in result:
-        print(averaged)
-
     return result
 
 
@@ -461,14 +455,6 @@ def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, mi
         print(f"Selected Policy {best_s}: roc_auc={best_iteration_metric:.4f}")
 
     return best_metric, best_group_indices, all_roc_aucs
-
-def dask_greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only):
-    """
-    Wrapper for the greedy search function to be executed in a Dask delayed task.
-    """
-    return delayed(greedy_search)(
-        initial_aug_idx, val_preds, good_idx, bad_idx, select_only
-    )
     
 def plot_auc_curves(results):
     """
@@ -486,39 +472,36 @@ def plot_auc_curves(results):
     plt.xlabel("Iterations")
     plt.ylabel("ROC AUC")
     plt.title("ROC AUC Progress Over Iterations for Each Greedy Search")
-    plt.legend()
     plt.grid(True)
     plt.show()
     
 def select_greedily_on_ens(all_preds, good_idx, bad_idx, keys, search_set_len, select_only=50, num_workers=1, num_searches=10, top_k=5):
-    """
-    Run multiple greedy search processes in parallel using Dask and select the best result.
-    """
-    val_preds = all_preds[:, :search_set_len, :]
 
-    # Initialize random starting augmentations for each search
-    initial_augmentations = [
-        np.random.choice(range(val_preds.shape[0])) for _ in range(num_searches)
-    ]
-
-    # Specify the number of workers (parallel processes) and threads per worker
-    client = Client(processes=True)
-    print(client)  # This shows the dashboard link and worker info
+    val_preds = np.copy(all_preds[:, :search_set_len, :])
+    # Initialize a multiprocessing pool for parallel execution
     
-    # Create Dask delayed tasks for each greedy search
-    delayed_tasks = [
-        dask_greedy_search(initial_aug, val_preds, good_idx, bad_idx, select_only)
-        for initial_aug in initial_augmentations
-    ]
-
-    # Compute all tasks in parallel using Dask
-    results = compute(*delayed_tasks)
+    with multiprocessing.Pool(processes=num_workers) as pool:
+        # Initialize random starting augmentations for each search
+        initial_augmentations = [
+            np.random.choice(range(val_preds.shape[0])) for _ in range(num_searches)
+        ]
+        try:
+            results = pool.starmap(greedy_search, [(initial_aug, val_preds, good_idx, bad_idx, select_only) for initial_aug in initial_augmentations])
+        except IndexError as e:
+            print("Debugging IndexError...")
+            print(f"val_preds shape: {val_preds.shape}")
+            pool.close()
+            pool.join()
+            raise e
+        finally:
+            pool.close()
+            pool.join()
 
     # Select the best result based on the ROC AUC metric
     best_result = max(results, key=lambda x: x[0])  # Select based on the best metric (ROC AUC)
     best_metric, best_group_indices, _ = best_result
 
-    print("\nDask parallel greedy search complete. Best metric:", best_metric)
+    print("\nParallel greedy search complete. Best metric:", best_metric)
     # Prioritize policies from top-performing searches
     prioritized_policies = prioritize_and_merge_with_similarity(results, keys, top_k=top_k)
 
@@ -547,7 +530,7 @@ def load_npz_files_for_greedy_search(npz_dir):
     all_preds = np.array(all_preds)  # Shape: [num_policies, num_samples, num_classes]
     return all_preds, all_keys
 
-def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, num_workers=1, num_searches=10, top_k=5):
+def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, num_workers=1, num_searches=10, top_k=5, plot=True):
     """
     Perform parallel greedy policy search using the select_greedily_on_ens function.
     Loads .npz files, aggregates predictions, and performs policy search.
@@ -557,7 +540,7 @@ def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, 
     # Step 1: Load the .npz files containing predictions
     all_preds, all_keys = load_npz_files_for_greedy_search(npz_dir)
     search_set_len = all_preds[0].size
-
+    
     # Step 3: Call the `select_greedily_on_ens` function with loaded predictions
     selected_policies, results, mutualized_top_policies = select_greedily_on_ens(
         all_preds,  # Predictions from npz files
@@ -571,8 +554,9 @@ def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, 
         top_k=top_k
     )
 
-    # Plot the ROC AUC curves for each greedy search
-    plot_auc_curves(results)
+    if plot:
+        # Plot the ROC AUC curves for each greedy search
+        plot_auc_curves(results)
 
     # Return the selected policies and their corresponding names
     selected_policy_names = [all_keys[i] for i in selected_policies]
