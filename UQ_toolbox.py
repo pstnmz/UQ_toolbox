@@ -475,7 +475,7 @@ def plot_auc_curves(results):
     plt.grid(True)
     plt.show()
     
-def select_greedily_on_ens(all_preds, good_idx, bad_idx, keys, search_set_len, select_only=50, num_workers=1, num_searches=10, top_k=5):
+def select_greedily_on_ens(all_preds, good_idx, bad_idx, keys, search_set_len, select_only=50, num_workers=1, num_searches=10, top_k=5, method='top_policies'):
 
     val_preds = np.copy(all_preds[:, :search_set_len, :])
     # Initialize a multiprocessing pool for parallel execution
@@ -502,10 +502,14 @@ def select_greedily_on_ens(all_preds, good_idx, bad_idx, keys, search_set_len, s
     best_metric, best_group_indices, _ = best_result
 
     print("\nParallel greedy search complete. Best metric:", best_metric)
-    # Prioritize policies from top-performing searches
-    prioritized_policies = prioritize_and_merge_with_similarity(results, keys, top_k=top_k)
+    
+    if method == 'mutualized_policies':
+        # Prioritize policies from top-performing searches
+        policies = prioritize_and_merge_with_similarity(results, keys, top_k=top_k)
+    else:
+        policies = np.array(best_group_indices)
 
-    return np.array(best_group_indices), results, prioritized_policies
+    return policies, results
 
 def load_npz_files_for_greedy_search(npz_dir):
     """
@@ -530,7 +534,7 @@ def load_npz_files_for_greedy_search(npz_dir):
     all_preds = np.array(all_preds)  # Shape: [num_policies, num_samples, num_classes]
     return all_preds, all_keys
 
-def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, num_workers=1, num_searches=10, top_k=5, plot=True):
+def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, num_workers=1, num_searches=10, top_k=5, plot=True, method='top_policies'):
     """
     Perform parallel greedy policy search using the select_greedily_on_ens function.
     Loads .npz files, aggregates predictions, and performs policy search.
@@ -541,24 +545,42 @@ def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, 
     all_preds, all_keys = load_npz_files_for_greedy_search(npz_dir)
     search_set_len = all_preds[0].size
     
-    # Step 3: Call the `select_greedily_on_ens` function with loaded predictions
-    selected_policies, results, mutualized_top_policies = select_greedily_on_ens(
-        all_preds,  # Predictions from npz files
-        good_idx,
-        bad_idx,
-        all_keys,
-        search_set_len=search_set_len,
-        select_only=max_iterations,  # Size of the dataset to be used for searching
-        num_workers=num_workers,  # Number of workers for parallel processing
-        num_searches=num_searches,  # Number of parallel greedy search processes
-        top_k=top_k
-    )
-
+    if method == 'top_policies':
+        # Step 3: Call the `select_greedily_on_ens` function with loaded predictions
+        selected_policies, results = select_greedily_on_ens(
+            all_preds,  # Predictions from npz files
+            good_idx,
+            bad_idx,
+            all_keys,
+            search_set_len=search_set_len,
+            select_only=max_iterations,  # Size of the dataset to be used for searching
+            num_workers=num_workers,  # Number of workers for parallel processing
+            num_searches=num_searches,  # Number of parallel greedy search processes
+            top_k=top_k,
+            method=method
+        )
+        # Return the selected policies and their corresponding names
+        selected_policy_names = [all_keys[i] for i in selected_policies]
+        
+    elif method == 'mutualized_policies':
+                # Step 3: Call the `select_greedily_on_ens` function with loaded predictions
+        selected_policies, results= select_greedily_on_ens(
+            all_preds,  # Predictions from npz files
+            good_idx,
+            bad_idx,
+            all_keys,
+            search_set_len=search_set_len,
+            select_only=max_iterations,  # Size of the dataset to be used for searching
+            num_workers=num_workers,  # Number of workers for parallel processing
+            num_searches=num_searches,  # Number of parallel greedy search processes
+            top_k=top_k,
+            method=method
+        )
+        selected_policy_names = selected_policies
     if plot:
         # Plot the ROC AUC curves for each greedy search
         plot_auc_curves(results)
 
-    # Return the selected policies and their corresponding names
-    selected_policy_names = [all_keys[i] for i in selected_policies]
     
-    return selected_policy_names, mutualized_top_policies
+    
+    return selected_policy_names
