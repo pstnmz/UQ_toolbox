@@ -1,6 +1,9 @@
 import matplotlib.pyplot as plt
 from sklearn.calibration import calibration_curve
 from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score, log_loss
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -12,6 +15,7 @@ from torchvision import transforms
 import torch.nn.functional as F
 from collections import defaultdict
 from gps_augment.utils.randaugment import BetterRandAugment
+import shap
 
 class AddBatchDimension:
     def __call__(self, image):
@@ -584,3 +588,489 @@ def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, 
     
     
     return selected_policy_names
+
+
+def visualize_input_shap_overlayed_multimodel(
+    models, eval_dataloader, device, success_indices, failure_indices, sample_size=5
+):
+    """
+    Visualize SHAP values overlayed on the original image for input pixels across multiple models.
+
+    Args:
+        models (list): List of trained PyTorch models.
+        eval_dataloader (DataLoader): DataLoader for evaluation data.
+        device (str): Device to run computations ('cuda' or 'cpu').
+        success_indices (list): Indices of success cases.
+        failure_indices (list): Indices of failure cases.
+        sample_size (int): Number of random success and failure cases to visualize.
+    """
+    for model in models:
+        model.eval()
+
+    # Combine indices and select random samples
+    np.random.seed(433)
+    success_sample = np.random.choice(success_indices, sample_size, replace=False)
+    failure_sample = np.random.choice(failure_indices, sample_size, replace=False)
+    selected_indices = np.concatenate([success_sample, failure_sample])
+
+    # Extract corresponding images
+    images_to_explain = []
+    labels_to_explain = []
+    cases = []
+    background_images = []
+    with torch.no_grad():
+        for i, batch in enumerate(eval_dataloader):
+            images = batch["image"].to(device)
+            labels = batch["shape"]  # Adjust key for labels based on your dataset
+            background_images.append(images)
+            for idx, img, lbl in zip(range(len(images)), images, labels):
+                global_idx = i * eval_dataloader.batch_size + idx
+                if global_idx in selected_indices:
+                    images_to_explain.append(img)
+                    labels_to_explain.append(lbl.item())
+                    cases.append(
+                        "Success" if global_idx in success_sample else "Failure"
+                    )
+
+            if len(images_to_explain) >= len(selected_indices):
+                break
+
+    # Convert to Tensor and preprocess
+    images_to_explain = torch.stack(images_to_explain).to(device)  # Shape: (sample_size, 1, H, W)
+    labels_to_explain = np.array(labels_to_explain)
+    background_images = torch.cat(background_images).to(device)  # Combine all background images
+
+    # Create subplots
+    num_images = len(selected_indices)
+    num_models = len(models)
+    fig, axes = plt.subplots(
+        num_images, num_models + 1, figsize=(4 * (num_models + 1), 4 * num_images)
+    )
+
+    # Iterate over cases
+    for i in range(num_images):
+        # Display original image in the first column
+        original_image = images_to_explain[i].cpu().numpy().squeeze()
+        axes[i, 0].imshow(original_image, cmap="gray")
+        axes[i, 0].axis("off")
+        axes[i, 0].set_title(f"Original Image (Case {i + 1})", fontsize=12)
+
+        # Iterate over models
+        for j, model in enumerate(models):
+            # Use GradientExplainer to compute SHAP values
+            explainer = shap.GradientExplainer(model, background_images)
+            shap_values = explainer.shap_values(images_to_explain[i : i + 1])
+
+            # Extract SHAP values and model prediction
+            shap_value = shap_values[0].squeeze()  # Single image SHAP values
+            prediction = model(images_to_explain[i : i + 1]).item()  # Sigmoid output
+
+            # Overlay SHAP values on the original image
+            axes[i, j + 1].imshow(original_image, cmap="gray")
+            axes[i, j + 1].imshow(
+                shap_value,
+                cmap="coolwarm",
+                alpha=0.6,
+                interpolation="nearest",
+                extent=(0, original_image.shape[1], original_image.shape[0], 0),
+            )
+            axes[i, j + 1].axis("off")
+
+            # Set title with label, prediction, and case type
+            label_text = "Round" if labels_to_explain[i] == 0 else "Irregular"
+            axes[i, j + 1].set_title(
+                f"Model {j} (Case {i + 1}): {label_text}\nPrediction: {prediction:.2f} ({cases[i]})",
+                fontsize=10,
+            )
+
+    plt.tight_layout()
+    plt.show()
+    
+def extract_latent_space_and_compute_shap_importance(model, data_loader, device, importance=True, classifierheadwrapper=None):
+    """
+    Compute SHAP values for the penultimate layer of the model and track success/failure.
+
+    Args:
+        model (torch.nn.Module): The trained model.
+        data_loader (DataLoader): DataLoader for the test set.
+        device (str): The device to run computations on ('cuda' or 'cpu').
+        importance (bool): Whether to compute SHAP values or only return features.
+
+    Returns:
+        tuple: 
+            - If `importance=True`: (shap_values, features, labels, success_flags)
+            - If `importance=False`: (features, labels, success_flags)
+    """
+    model.eval()
+
+    # Hook to extract features from the penultimate layer
+    penultimate_features = []
+    all_labels = []
+    success_flags = []  # List to track success/failure per sample
+    predictions = []
+    
+    def hook(module, input, output):
+        penultimate_features.append(output.detach())
+
+    hook_handle = model.fc1.register_forward_hook(hook)  # Attach hook
+
+    # Collect features, labels, and predictions
+    with torch.no_grad():
+        for batch in data_loader:
+            images = batch['image'].to(device)
+            labels = batch['shape'].cpu().numpy()
+            all_labels.extend(labels)
+
+            # Compute model predictions
+            preds = model(images).cpu().numpy()
+            predicted_classes = (preds > 0.5).astype(int)  # Convert to binary classification
+            
+            # Track success (1) / failure (0)
+            success_flags.extend((predicted_classes.flatten() == labels).astype(int))
+            predictions.extend(preds)
+
+    # Remove hook
+    hook_handle.remove()
+
+    # Prepare features and labels
+    features = torch.cat(penultimate_features).cpu().detach().numpy()
+    labels = np.array(all_labels)
+    success_flags = np.array(success_flags)  # Convert to numpy array for easier manipulation
+
+    if importance:
+        # Wrap the classifier head
+        classifier_head = classifierheadwrapper
+
+        # SHAP Explainer for the classifier head
+        explainer = shap.DeepExplainer(classifier_head, torch.tensor(features, dtype=torch.float32, device=device))
+
+        # Compute SHAP values
+        shap_values = explainer.shap_values(torch.tensor(features, dtype=torch.float32, device=device))
+        shap_values = shap_values.squeeze(axis=-1)
+
+        return shap_values, features, labels, success_flags
+    else:
+        return features, labels, success_flags, predictions
+    
+    
+def display_shap_values(shap_df):
+    """
+    Display SHAP values with feature indices for a single fold.
+
+    Returns:
+        pd.Series: Mean absolute SHAP values for each feature.
+    """
+
+    # Compute the mean absolute SHAP values for each feature
+    shap_importance = shap_df.abs().mean().sort_values(ascending=False)
+
+    return shap_importance
+
+
+def plot_shap_importance(shap_importance, fold, feature_names=None):
+    """
+    Plot SHAP feature importance as a bar chart.
+
+    Args:
+        shap_importance (pd.Series): Mean absolute SHAP values for each feature.
+        fold (int): Fold index for labeling the plot.
+        feature_names (list, optional): List of feature names to include in the plot. If provided,
+                                         only these features will be plotted.
+    """
+
+    if feature_names is not None:
+        # Filter shap_importance for the specified features
+        shap_importance = shap_importance[shap_importance.index.isin(feature_names)]
+
+    plt.figure(figsize=(15, 8))
+    shap_importance.plot(kind="bar")
+    plt.title(f"SHAP Feature Importance (Fold {fold})")
+    plt.xlabel("Features")
+    plt.ylabel("Mean |SHAP Value|")
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.show()
+    
+    
+def plot_clustered_feature_heatmap(features, fold):
+    """
+    Plot a clustered heatmap of feature correlations.
+
+    Args:
+        features (numpy.ndarray): Features for a fold with shape (num_samples, num_features).
+        fold (int): The fold index for labeling the plot.
+    """
+    # Compute feature correlation matrix
+    correlation_matrix = np.corrcoef(features, rowvar=False)  # Correlation between features
+    abs_correlation_matrix = np.abs(correlation_matrix)
+    
+    # Perform hierarchical clustering
+    linkage_matrix = linkage(abs_correlation_matrix, method='ward')
+    clustered_order = leaves_list(linkage_matrix)  # Order of features after clustering
+
+    # Reorder the correlation matrix based on clustering
+    clustered_corr_matrix = abs_correlation_matrix[clustered_order][:, clustered_order]
+
+    # Reorder feature labels
+    clustered_labels = [f"Feature_{i}" for i in clustered_order]
+
+    # Plot the clustered heatmap
+    plt.figure(figsize=(12, 10))
+    sns.heatmap(
+        clustered_corr_matrix,
+        xticklabels=clustered_labels,
+        yticklabels=clustered_labels,
+        cmap="coolwarm",
+        annot=False,
+        fmt=".2f",
+        cbar=True
+    )
+    plt.title(f"Clustered Feature Correlation Heatmap (Fold {fold})")
+    plt.xlabel("Features")
+    plt.ylabel("Features")
+    plt.tight_layout()
+    plt.show()
+
+
+def feature_engineering_pipeline(mean_shap_df, latent_space, shap_threshold=0.05, corr_threshold=0.8):
+    """
+    Feature engineering pipeline based on SHAP values and feature correlations.
+
+    Args:
+        mean_shap_df (pd.Series): Mean absolute SHAP values indexed by feature names.
+        latent_space (pd.DataFrame): Latent space values for all features (samples x features).
+        shap_threshold (float): Threshold for mean absolute SHAP values.
+        corr_threshold (float): Threshold for absolute correlation coefficients.
+
+    Returns:
+        pd.DataFrame: Final latent space values of retained features (samples x features).
+        list: Final list of retained feature names.
+    """
+    # Step 1: Filter features based on SHAP threshold
+    retained_features = mean_shap_df[mean_shap_df > shap_threshold].index
+    retained_features = retained_features.intersection(latent_space.columns)  # Align with latent_space
+    print(f"Retained {len(retained_features)} features after SHAP filtering.")
+
+    # Step 2: Compute absolute correlation matrix for retained features
+    retained_latent_space = latent_space[retained_features]  # Latent space for retained features
+    correlation_matrix = retained_latent_space.corr()
+    abs_correlation_matrix = np.abs(correlation_matrix)
+
+    # Visualize correlation heatmap with dendrogram after SHAP filtering
+    from scipy.cluster.hierarchy import dendrogram, linkage
+    from scipy.spatial.distance import squareform
+
+    linkage_matrix = linkage(squareform(1 - abs_correlation_matrix), method="ward")
+
+    # Clustered heatmap
+    sns.clustermap(
+        abs_correlation_matrix,
+        row_linkage=linkage_matrix,
+        col_linkage=linkage_matrix,
+        cmap="coolwarm",
+        vmin=0,
+        vmax=1,
+        figsize=(12, 12),
+        annot=True
+    )
+    plt.title("Clustered Correlation Heatmap After SHAP Filtering")
+    plt.show()
+
+    # Step 3: Identify clusters of correlated features
+    clusters = fcluster(linkage_matrix, t=1 - corr_threshold, criterion="distance")
+    cluster_groups = {cluster: [] for cluster in np.unique(clusters)}
+
+    for feature, cluster in zip(abs_correlation_matrix.columns, clusters):
+        cluster_groups[cluster].append(feature)
+
+    # Step 4: Visualize correlation heatmap for each cluster
+    print(f"Identified {len(cluster_groups)} clusters.")
+
+    # Step 5: Keep the most important feature from each cluster
+    final_features = []
+    for cluster, features in cluster_groups.items():
+        if len(features) > 1:
+            # Keep only the feature with the highest mean SHAP value
+            most_important_feature = max(features, key=lambda f: mean_shap_df[f])
+            final_features.append(most_important_feature)
+        else:
+            final_features.extend(features)
+
+    # # Step 6: Resolve any remaining pairs with correlation > threshold
+    retained_latent_space = latent_space[final_features]
+    correlation_matrix = retained_latent_space.corr()
+    abs_correlation_matrix = np.abs(correlation_matrix)
+
+    while True:
+        correlated_pairs = [
+            (i, j)
+            for i in abs_correlation_matrix.columns
+            for j in abs_correlation_matrix.columns
+            if i != j and abs_correlation_matrix.loc[i, j] > corr_threshold
+        ]
+        if not correlated_pairs:
+            break
+
+        # Remove the less important feature from each correlated pair
+        features_to_remove = set()
+        for i, j in correlated_pairs:
+            less_important = i if mean_shap_df[i] < mean_shap_df[j] else j
+            features_to_remove.add(less_important)
+
+        final_features = [f for f in final_features if f not in features_to_remove]
+        retained_latent_space = latent_space[final_features]
+        correlation_matrix = retained_latent_space.corr()
+        abs_correlation_matrix = np.abs(correlation_matrix)
+
+    print(f"Retained {len(final_features)} features after correlation filtering.")
+
+    # Step 7: Plot final heatmap of retained features correlation
+    final_corr_matrix = abs_correlation_matrix.loc[final_features, final_features]
+    plt.figure(figsize=(12, 10))
+    sns.heatmap(
+        final_corr_matrix,
+        xticklabels=final_features,
+        yticklabels=final_features,
+        cmap="coolwarm",
+        vmin=0,
+        vmax=1,
+        annot=True,
+        cbar=True
+    )
+    plt.title("Final Retained Features Correlation Heatmap")
+    plt.xlabel("Features")
+    plt.ylabel("Features")
+    plt.tight_layout()
+    plt.show()
+
+    return retained_latent_space, final_features
+
+def visualize_umap_with_labels(umap_train, umap_test, success, labels, fold=0):
+    """
+    Improved UMAP visualization with better readability.
+
+    Args:
+        umap_train (numpy.ndarray): UMAP-reduced train data (samples x 2).
+        umap_test (numpy.ndarray): UMAP-reduced test data (samples x 2).
+        success (list): List of success (1) or failure (0) cases in the test set.
+        labels (list): List of train labels (0 = Round, 1 = Irregular).
+        fold (int): Fold index to visualize.
+    """
+    # Extract train labels
+    round_indices = np.where(np.array(labels) == 0)[0]
+    irregular_indices = np.where(np.array(labels) == 1)[0]
+
+    # Extract test labels (success/failure)
+    success_indices = np.where(np.array(success) == 1)[0]
+    failure_indices = np.where(np.array(success) == 0)[0]
+
+    plt.figure(figsize=(12, 8))
+
+    # Use KDE density estimation for train data
+    sns.kdeplot(
+        x=umap_train[:, 0], 
+        y=umap_train[:, 1], 
+        cmap="Blues", 
+        fill=True, 
+        alpha=0.3, 
+        levels=20
+    )
+
+    # Plot round cases in train data (blue, circles)
+    plt.scatter(
+        umap_train[round_indices, 0],
+        umap_train[round_indices, 1],
+        label="Round (Train)",
+        alpha=0.4,
+        color="blue",
+        marker="o",
+        s=50  # Slightly larger
+    )
+
+    # Plot irregular cases in train data (black, stars)
+    plt.scatter(
+        umap_train[irregular_indices, 0],
+        umap_train[irregular_indices, 1],
+        label="Irregular (Train)",
+        alpha=0.4,
+        color="black",
+        marker="*",
+        s=50
+    )
+
+    plt.scatter(
+        umap_test[success_indices, 0],
+        umap_test[success_indices, 1],
+        label="Success (Test)",
+        alpha=1.0,
+        color="green",
+        marker="x",
+        s=70,  # Larger size for visibility
+        linewidth=0.6
+    )
+
+    # Plot failure cases in test data (red, outlined x)
+    plt.scatter(
+        umap_test[failure_indices, 0],
+        umap_test[failure_indices, 1],
+        label="Failure (Test)",
+        alpha=1.0,
+        color="red",
+        marker="x",
+        s=70,
+        linewidth=0.6
+    )
+
+    # Add plot details
+    plt.title(f"UMAP Visualization of Latent Space (Fold {fold})", fontsize=14, fontweight="bold")
+    plt.xlabel("UMAP Dimension 1", fontsize=12)
+    plt.ylabel("UMAP Dimension 2", fontsize=12)
+    plt.legend(fontsize=10, loc="upper right", frameon=True)
+    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.show()
+    
+    
+def analyze_hyperplane_distance(train_latent, train_labels, eval_latent, eval_success, display_distrib=False):
+    """
+    Train an SVM hyperplane on the train latent space and compute distances for evaluation cases.
+
+    Args:
+        train_latent (np.ndarray): Training latent space (samples x features).
+        train_labels (np.ndarray): Labels for training data (0 = round, 1 = irregular).
+        eval_latent (np.ndarray): Evaluation latent space (samples x features).
+        eval_labels (np.ndarray): Labels for evaluation data (0 = round, 1 = irregular).
+        eval_success (np.ndarray): Success (1) or Failure (0) for evaluation cases.
+
+    Returns:
+        None (Plots distributions and computes AUROC).
+    """
+
+    # Train a linear SVM on the latent space
+    svm = SVC(kernel="linear")
+    svm.fit(train_latent, train_labels)
+
+    # Compute signed distances to the decision hyperplane
+    eval_distances = svm.decision_function(eval_latent)
+
+    # Separate success and failure cases based on distances
+    success_distances = eval_distances[eval_success == 1]
+    failure_distances = eval_distances[eval_success == 0]
+    
+    scaler = StandardScaler()
+    normalized_distances = scaler.fit_transform(eval_distances.reshape(-1, 1)).flatten()
+        # Separate success and failure cases based on distances
+    success_distances_normalized = normalized_distances[eval_success == 1]
+    failure_distances_normalized = normalized_distances[eval_success == 0]
+    
+    if display_distrib:
+        plt.figure(figsize=(8, 6))
+        sns.histplot(success_distances_normalized, color='green', label='Success', kde=True, stat="count")
+        sns.histplot(failure_distances_normalized, color='red', label='Failure', kde=True, stat="count")
+        plt.axvline(0, color='black', linestyle='dashed', label='Decision Boundary (Normalized)')
+        plt.xlabel("Distance to Hyperplane")
+        plt.ylabel("Count")
+        plt.title("Normalized distance to Hyperplane (Success vs Failure)")
+        plt.legend()
+        plt.show()
+    
+    return eval_distances
