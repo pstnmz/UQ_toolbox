@@ -132,8 +132,22 @@ def ensembling_predictions(models, image):
     return ensembling_predictions
     
 def distance_to_hard_labels_computation(predictions):
-    distances = [0.5 - abs(pred - 0.5) for pred in predictions]
-    
+    """
+    Compute the distance to hard labels for binary or multiclass predictions.
+
+    Args:
+    - predictions (numpy.ndarray): Array of predictions. Shape (num_samples,) for binary or (num_samples, num_classes) for multiclass.
+
+    Returns:
+    - distances (list): List of distances to the hard labels.
+    """
+    if predictions.ndim == 1:
+        # Binary classification
+        distances = [0.5 - abs(pred - 0.5) for pred in predictions]
+    else:
+        # Multiclass classification
+        distances = [1.0 - np.max(pred) for pred in predictions]
+
     return distances
 
 def ensembling_stds_computation(models_predictions):
@@ -158,7 +172,7 @@ def model_calibration_plot(true_labels, predictions):
     plt.grid()
     plt.show()
 
-def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title):
+def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, swarmplot=True):
     df = pd.DataFrame({
         y_title: correct_predictions + incorrect_predictions,
         'Category': ['Correct Results'] * len(correct_predictions) + ['Incorrect Results'] * len(incorrect_predictions)
@@ -168,7 +182,8 @@ def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title):
 
     # Create the boxplot
     sns.boxplot(x='Category', y=y_title, data=df, palette='muted')
-    sns.swarmplot(x='Category', y=y_title, data=df, color='k', alpha=0.3)
+    if swarmplot:
+        sns.swarmplot(x='Category', y=y_title, data=df, color='k', alpha=0.3)
     
     # Show the plot
     plt.title(title)
