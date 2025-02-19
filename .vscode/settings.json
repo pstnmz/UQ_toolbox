@@ -1,5 +1,11 @@
 {
     "cSpell.words": [
         "imblearn"
-    ]
+    ],
+    
+    "https.proxy": "https://wpad.curie.fr/",
+    "http.proxy": "http://wpad.curie.fr/",
+    "http.proxyStrictSSL": false,
+    "noProxy": "127.0.0.0/8",
+    "python.analysis.autoImportCompletions": false
 }
