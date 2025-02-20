@@ -151,7 +151,29 @@ def distance_to_hard_labels_computation(predictions):
     return distances
 
 def ensembling_stds_computation(models_predictions):
-    stds = [np.std(row) for row in zip(*models_predictions)]
+    """
+    Compute the standard deviations of model predictions for ensembling.
+    Parameters:
+    models_predictions (array-like): An array of shape (num_models, num_samples) for binary classification
+                                     or (num_models, num_samples, num_classes) for multiclass classification
+                                     containing the predictions from different models.
+    Returns:
+    np.ndarray: An array of standard deviations for each sample in binary classification or
+                an array of mean standard deviations across classes for each sample in multiclass classification.
+    Raises:
+    ValueError: If the shape of models_predictions array is not 2D or 3D.
+    """
+    models_predictions = np.array(models_predictions)
+    
+    if models_predictions.ndim == 2:
+        # Binary classification: shape (num_models, num_samples)
+        stds = np.std(models_predictions, axis=0)
+    elif models_predictions.ndim == 3:
+        # Multiclass classification: shape (num_models, num_samples, num_classes)
+        stds_per_class = np.std(models_predictions, axis=0)
+        stds = np.mean(stds_per_class, axis=1)
+    else:
+        raise ValueError("Unexpected shape of models_predictions array")
     
     return stds
     
