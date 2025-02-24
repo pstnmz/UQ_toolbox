@@ -7,15 +7,13 @@ from torchvision import transforms
 
 FILL_MEAN = False
 FILL_COLOR = (0, 0, 0)
-IMAGE_SIZE = 51
-PAD = IMAGE_SIZE - 1
 INTERPOLATION = Image.BICUBIC
 
 class ReflectionPaddingFunctor(object):
-    def __init__(self, transform):
+    def __init__(self, transform, image_size=51):
         self.transform = transform
-        self.pad = PAD
-        self.crop = (PAD, PAD, PAD + IMAGE_SIZE, PAD + IMAGE_SIZE)
+        self.pad = image_size - 1
+        self.crop = (self.pad, self.pad, self.pad + image_size, self.pad + image_size)
         self.__name__ = transform.__name__
     
     def __call__(self, img, val):
@@ -31,7 +29,7 @@ def Posterize(img, v):
     v = int(v)
     return PIL.ImageOps.posterize(img, v)
 
-def ShearX(img, v):  # [-0.3, 0.3]
+def ShearX(img, v, image_size=51):  # [-0.3, 0.3]
     if random.random() > 0.5:
         v = -v
     flipped = False
@@ -44,14 +42,13 @@ def ShearX(img, v):  # [-0.3, 0.3]
         fillcolor = FILL_COLOR
 
         
-    img = img.transform(img.size, PIL.Image.AFFINE, (1, v, -np.sign(v) * PAD, 0, 1, PAD), resample=INTERPOLATION, fillcolor=(0, 0, 0))
-    img = img.transform(img.size, PIL.Image.AFFINE, (1, 0, np.sign(v) * PAD, 0, 1, -PAD), resample=0, fillcolor=(0, 0, 0))
+    img = img.transform(img.size, PIL.Image.AFFINE, (1, v, -np.sign(v) * (image_size - 1), 0, 1, (image_size - 1)), resample=INTERPOLATION, fillcolor=(0, 0, 0))
+    img = img.transform(img.size, PIL.Image.AFFINE, (1, 0, np.sign(v) * (image_size - 1), 0, 1, -(image_size - 1)), resample=0, fillcolor=(0, 0, 0))
     if flipped:
         img = img.transpose(PIL.Image.FLIP_TOP_BOTTOM)
     return img
-#     return img.transform(img.size, PIL.Image.AFFINE, (1, v, 0, 0, 1, 0), resample=INTERPOLATION, fillcolor=fillcolor)
 
-def ShearY(img, v):  # [-0.3, 0.3]
+def ShearY(img, v, image_size=51):  # [-0.3, 0.3]
     if random.random() > 0.5:
         v = -v
     flipped = False
@@ -62,18 +59,17 @@ def ShearY(img, v):  # [-0.3, 0.3]
         fillcolor = tuple([int(x) for x in PIL.ImageStat.Stat(img).mean])
     else:
         fillcolor = FILL_COLOR
-    img = img.transform(img.size, PIL.Image.AFFINE, (1, 0, PAD, v, 1, -np.sign(v) * PAD), resample=INTERPOLATION, fillcolor=(0, 0, 0))
-    img = img.transform(img.size, PIL.Image.AFFINE, (1, 0, -PAD, 0, 1, np.sign(v) * PAD), resample=0, fillcolor=(0, 0, 0))
+    img = img.transform(img.size, PIL.Image.AFFINE, (1, 0, (image_size - 1), v, 1, -np.sign(v) * (image_size - 1)), resample=INTERPOLATION, fillcolor=(0, 0, 0))
+    img = img.transform(img.size, PIL.Image.AFFINE, (1, 0, -(image_size - 1), 0, 1, np.sign(v) * (image_size - 1)), resample=0, fillcolor=(0, 0, 0))
     if flipped:
         img = img.transpose(PIL.Image.FLIP_LEFT_RIGHT)
     return img
 
 
-def TranslateX(img, v):  # [-150, 150] => percentage: [-0.45, 0.45]
+def TranslateX(img, v, image_size=51):  # [-150, 150] => percentage: [-0.45, 0.45]
     if random.random() > 0.5:
         v = -v
-    # WARNING: IMAGE SIZE HARD-CODED!
-    v = v * IMAGE_SIZE
+    v = v * image_size
     if FILL_MEAN:
         fillcolor = tuple([int(x) for x in PIL.ImageStat.Stat(img).mean])
     else:
@@ -81,11 +77,10 @@ def TranslateX(img, v):  # [-150, 150] => percentage: [-0.45, 0.45]
     return img.transform(img.size, PIL.Image.AFFINE, (1, 0, v, 0, 1, 0), fillcolor=fillcolor)
 
 
-def TranslateY(img, v):  # [-150, 150] => percentage: [-0.45, 0.45]
+def TranslateY(img, v, image_size=51):  # [-150, 150] => percentage: [-0.45, 0.45]
     if random.random() > 0.5:
         v = -v
-    # WARNING: IMAGE SIZE HARD-CODED!
-    v = v * IMAGE_SIZE
+    v = v * image_size
     if FILL_MEAN:
         fillcolor = tuple([int(x) for x in PIL.ImageStat.Stat(img).mean])
     else:
@@ -130,7 +125,6 @@ def Cutout(img, v, fcolor=None):  # [0, 60] => percentage: [0, 0.2]
     return CutoutAbs(img, v, fcolor)
 
 def CutoutAbs(img, v, fcolor=None):  # [0, 60] => percentage: [0, 0.2]
-    # assert 0 <= v <= 20
     if v < 0:
         return img
     w, h = img.size
@@ -159,18 +153,15 @@ def Invert(img, _):
 def Equalize(img, _):
     return PIL.ImageOps.equalize(img)
 
-def augment_list():  # 16 oeprations and their ranges
-    # https://github.com/google-research/uda/blob/master/image/randaugment/policies.py#L57
+def augment_list(im_size):  # 16 oeprations and their ranges
     l = [
         (Identity, 0., 1.0), # 0
-        (ReflectionPaddingFunctor(ShearX), 0., 0.5),  # 1
-        (ReflectionPaddingFunctor(ShearY), 0., 0.5),  # 2
-        (ReflectionPaddingFunctor(TranslateX), 0., 0.45),  # 3
-        (ReflectionPaddingFunctor(TranslateY), 0., 0.45),  # 4
-        (ReflectionPaddingFunctor(Rotate), 0, 40),  # 5
+        (ReflectionPaddingFunctor(ShearX, image_size=im_size), 0., 0.5),  # 1
+        (ReflectionPaddingFunctor(ShearY, image_size=im_size), 0., 0.5),  # 2
+        (ReflectionPaddingFunctor(TranslateX, image_size=im_size), 0., 0.45),  # 3
+        (ReflectionPaddingFunctor(TranslateY, image_size=im_size), 0., 0.45),  # 4
+        (ReflectionPaddingFunctor(Rotate, image_size=im_size), 0, 40),  # 5
         (AutoContrast, 0, 10),  # 6
-#         (Invert, 0, 1),  # 6
-#         (Equalize, 0, 1),  # 7
         (Solarize, 256, 128),  # 7
         (SolarizeAdd, 256, 128),  # 8
         (Posterize, 8, 2),  # 9
@@ -184,17 +175,17 @@ def augment_list():  # 16 oeprations and their ranges
 
 
 class BetterRandAugment:
-    def __init__(self, n, m, rand_m=False, resample=True, verbose=False, transform=None, true_m0=False, randomize_sign=True, used_transforms=None):
+    def __init__(self, n, m, rand_m=False, resample=True, verbose=False, transform=None, true_m0=False, randomize_sign=True, used_transforms=None, image_size=51):
         self.n = n
         self.m = m
         self.max_magnitude = m
         self.rand_m = rand_m
-        self.augment_list = augment_list()
+        self.augment_list = augment_list(image_size)
         self.verbose = verbose
         self.true_m0 = true_m0
         self.randomize_sign = randomize_sign
         if used_transforms is None:
-            self.used_transforms = list(range(len(augment_list())))
+            self.used_transforms = list(range(len(augment_list(image_size))))
         else:
             self.used_transforms = used_transforms
         

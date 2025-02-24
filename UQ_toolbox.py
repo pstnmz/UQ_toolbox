@@ -273,7 +273,26 @@ def to_1_channel(img):
     img = img.convert('L')  # Convert back to grayscale
     return img
 
-def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies, device, binary_classification=False, batch_norm=False, mean=False, std=False, bw=True):
+def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies, device, folder_name='savedpolicies', binary_classification=False, batch_norm=False, mean=False, std=False, bw=True, image_size=51):
+    """
+    Apply RandAugment transformations to the data and store the results.
+    Parameters:
+    data_loader (torch.utils.data.DataLoader): DataLoader for the dataset.
+    models (list): List of models to use for predictions.
+    N (int): Number of augmentation transformations to apply.
+    M (int): Magnitude of the augmentation transformations.
+    num_policies (int): Number of random augmentation policies to generate.
+    device (torch.device): Device to run the models on (e.g., 'cpu' or 'cuda').
+    binary_classification (bool, optional): Whether the task is binary classification. Default is False.
+    batch_norm (bool, optional): Whether to use batch normalization. Default is False.
+    mean (bool or list, optional): Mean for normalization. Default is False.
+    std (bool or list, optional): Standard deviation for normalization. Default is False.
+    bw (bool, optional): Whether to convert images to black and white. Default is True.
+    Returns:
+    tuple: A tuple containing:
+        - results_dict (dict): Dictionary with augmentation policies as keys and predictions as values.
+        - dict_name (str): Name of the results dictionary.
+    """
     results_dict = {}
     
     # Create folder for saving policies if it doesn't exist
@@ -282,13 +301,14 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
         print(f'augmentation n:{i}')
         
         augment_transform = transforms.Compose([
-                                transforms.ToPILImage(),
-                                to_3_channels if bw else None,  # Use * to unpack only if `bw=True`
-                                BetterRandAugment(N, M, True, False, randomize_sign=False),
-                                to_1_channel if bw else None,
-                                transforms.PILToTensor(),
-                                transforms.Lambda(lambda x: x.float()) if bw else transforms.ConvertImageDtype(torch.float),
-                                transforms.Normalize(mean=mean, std=std)])
+            transforms.ToPILImage(),
+            *([to_3_channels] if bw else []),  # Conditionally add to_3_channels
+            BetterRandAugment(N, M, True, False, randomize_sign=False, image_size=image_size),
+            *([to_1_channel] if bw else []),  # Conditionally add to_1_channel
+            transforms.PILToTensor(),
+            transforms.Lambda(lambda x: x.float()) if bw else transforms.ConvertImageDtype(torch.float),
+            *([transforms.Normalize(mean=mean, std=std)] if batch_norm is False else [])
+        ])
         
         # Apply the policy and get the predictions
         predictions = apply_policy_and_get_predictions(data_loader, models, augment_transform, device, binary_classification=binary_classification)
@@ -298,7 +318,7 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
         results_dict[policy_key] = predictions
         
         # Saving results in a .npz file in the 'savedpolicies' folder
-        filename = f'savedpolicies/N{N}_M{M}_{policy_key}.npz'
+        filename = f'{folder_name}/N{N}_M{M}_{policy_key}.npz'
         np.savez_compressed(filename, predictions=predictions)
 
     dict_name = f'results_randaugment_{num_policies}TTA_N{N}_M{M}'
@@ -419,8 +439,11 @@ def apply_policy_and_get_predictions(data_loader, models, augment_transform, dev
     
     # Predict for each sample in the test set
     for batch in data_loader:
-        inputs = batch['image']
-        augmented_inputs = torch.stack([augment_transform(image) for image in inputs])
+        if isinstance(batch, dict):
+            batch = (batch['image'], batch['label'])  # Convert to tuple
+
+        images = batch[0]  # Access the images using positional indexing
+        augmented_inputs = torch.stack([augment_transform(image) for image in images])
 
         with torch.no_grad():
             if isinstance(models, list):
@@ -1111,3 +1134,4 @@ def analyze_hyperplane_distance(train_latent, train_labels, eval_latent, eval_su
         plt.show()
     
     return eval_distances
+
