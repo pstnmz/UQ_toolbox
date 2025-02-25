@@ -252,14 +252,14 @@ def distance_to_hard_labels_computation(predictions):
     - predictions (numpy.ndarray): Array of predictions. Shape (num_samples,) for binary or (num_samples, num_classes) for multiclass.
 
     Returns:
-    - distances (list): List of distances to the hard labels.
+    - list: List of distances to the hard labels.
     """
     if predictions.ndim == 1:
         # Binary classification
-        distances = [0.5 - abs(pred - 0.5) for pred in predictions]
+        distances = 0.5 - np.abs(predictions - 0.5)
     else:
         # Multiclass classification
-        distances = [1.0 - np.max(pred) for pred in predictions]
+        distances = 1.0 - np.max(predictions, axis=1)
 
     return distances
 
@@ -276,17 +276,17 @@ def ensembling_stds_computation(models_predictions):
     Raises:
     ValueError: If the shape of models_predictions array is not 2D or 3D.
     """
-    models_predictions = np.array(models_predictions)
+    models_predictions = np.asarray(models_predictions)
     
     if models_predictions.ndim == 2:
         # Binary classification: shape (num_models, num_samples)
         stds = np.std(models_predictions, axis=0)
     elif models_predictions.ndim == 3:
         # Multiclass classification: shape (num_models, num_samples, num_classes)
-        stds_per_class = np.std(models_predictions, axis=0)
-        stds = np.mean(stds_per_class, axis=1)
+        class_wise_stds = np.std(models_predictions, axis=0)
+        stds = np.mean(class_wise_stds, axis=1)
     else:
-        raise ValueError("Unexpected shape of models_predictions array")
+        raise ValueError("Unexpected shape of models_predictions array. Expected 2D or 3D array.")
     
     return stds
     
