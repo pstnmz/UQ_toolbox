@@ -131,7 +131,7 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
     return stds, global_preds
 
 
-def apply_augmentations(images, transformations, nb_augmentations, usingBetterRandAugment, n, m, batch_norm, nb_channels, mean, std, image_size):
+def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, batch_norm, nb_channels, mean, std, image_size, transformations=False):
     """
     Apply augmentations to the images.
 
@@ -151,20 +151,36 @@ def apply_augmentations(images, transformations, nb_augmentations, usingBetterRa
     Returns:
         torch.Tensor: Augmented images.
     """
-    if usingBetterRandAugment and isinstance(transformations, list):
-        augmented_inputs = torch.stack(
-            [torch.stack(
-                [transforms.Compose([
-                    transforms.ToPILImage(),
-                    *([to_3_channels] if nb_channels == 1 else []),  # Conditionally add to_3_channels
-                    BetterRandAugment(n=n, m=m, resample=False, transform=policy, verbose=True, randomize_sign=False, image_size=image_size),
-                    *([to_1_channel] if nb_channels == 1 else []),  # Conditionally add to_1_channel
-                    transforms.PILToTensor(),
-                    transforms.Lambda(lambda x: x.float()) if nb_channels == 1 else transforms.ConvertImageDtype(torch.float),
-                    *([transforms.Normalize(mean=mean, std=std)] if batch_norm is False else [])
-                ])(image) for policy in transformations]  # Use only up to `nb_augmentations` policies
-            ) for image in images], dim=0
-        )  # Shape: [batch_size, num_augmentations, C, H, W]
+    if usingBetterRandAugment:
+        if isinstance(transformations, list):
+            augmented_inputs = torch.stack(
+                [torch.stack(
+                    [transforms.Compose([
+                        transforms.ToPILImage(),
+                        *([to_3_channels] if nb_channels == 1 else []),  # Conditionally add to_3_channels
+                        BetterRandAugment(n=n, m=m, resample=False, transform=policy, verbose=True, randomize_sign=False, image_size=image_size),
+                        *([to_1_channel] if nb_channels == 1 else []),  # Conditionally add to_1_channel
+                        transforms.PILToTensor(),
+                        transforms.Lambda(lambda x: x.float()) if nb_channels == 1 else transforms.ConvertImageDtype(torch.float),
+                        *([transforms.Normalize(mean=mean, std=std)] if batch_norm is False else [])
+                    ])(image) for policy in transformations]  # Use only up to `nb_augmentations` policies
+                ) for image in images], dim=0
+            )  # Shape: [batch_size, num_augmentations, C, H, W]
+        elif transformations is False:
+            augmented_inputs = torch.stack(
+                [torch.stack(
+                    [transforms.Compose([
+                        transforms.ToPILImage(),
+                        *([to_3_channels] if nb_channels == 1 else []),  # Conditionally add to_3_channels
+                        BetterRandAugment(n, m, True, False, randomize_sign=False, image_size=image_size),
+                        *([to_1_channel] if nb_channels == 1 else []),  # Conditionally add to_1_channel
+                        transforms.PILToTensor(),
+                        transforms.Lambda(lambda x: x.float()) if nb_channels == 1 else transforms.ConvertImageDtype(torch.float),
+                        *([transforms.Normalize(mean=mean, std=std)] if not batch_norm else [])
+                    ])(image) for _ in range(nb_augmentations)]  # Use only up to `nb_augmentations` policies
+                ) for image in images], dim=0
+            )  # Shape: [batch_size, num_augmentations, C, H, W]
+
     else:
         augmented_inputs = torch.stack(
             [torch.stack([transformations(image) for _ in range(nb_augmentations)]) for image in images], 
@@ -173,6 +189,49 @@ def apply_augmentations(images, transformations, nb_augmentations, usingBetterRa
     
     augmented_inputs = augmented_inputs.view(-1, *augmented_inputs.shape[2:])  # Shape: [batch_size * num_augmentations, C, H, W]
     return augmented_inputs
+
+
+def apply_policy_and_get_predictions(data_loader, models, augment_transform, device, softmax_application=False):
+    """
+    Apply augmentation policy to input data and get predictions from the model(s).
+    Args:
+        data_loader (torch.utils.data.DataLoader): DataLoader for the dataset to predict on.
+        models (torch.nn.Module or list of torch.nn.Module): A single model or a list of models to use for predictions.
+        augment_transform (callable): A function or transform to apply to each image for augmentation.
+        device (torch.device): The device to run the model(s) on (e.g., 'cpu' or 'cuda').
+        softmax_application (bool, optional): Whether to apply softmax to the model outputs. Defaults to False.
+    Returns:
+        torch.Tensor: A tensor containing the predictions for each sample in the dataset. The shape will be 
+                      [num_samples, 1] for binary classification or [num_samples, num_classes] for multi-class classification.
+    """
+    results = []
+    
+    # Predict for each sample in the test set
+    for batch in data_loader:
+        if isinstance(batch, dict):
+            batch = (batch['image'], batch['label'])  # Convert to tuple
+
+        images = batch[0]  # Access the images using positional indexing
+        augmented_inputs = torch.stack([augment_transform(image) for image in images])
+
+        with torch.no_grad():
+            if isinstance(models, list):
+                batch_predictions = []
+                for model in models:
+                    model.to(device)
+                    model_preds = get_prediction(model, augmented_inputs, device, softmax_application)
+                    batch_predictions.append(model_preds)
+                
+                stacked_preds = torch.stack(batch_predictions, dim=0)
+                # Average predictions for each sample in the batch across models
+                predictions = torch.mean(stacked_preds, axis=0) 
+            else: 
+                models.to(device)
+                predictions = get_prediction(models, augmented_inputs, device, softmax_application)
+            results.extend(predictions)
+    
+    # Return the results as a torch tensor (shape: [num_samples, 1] for binary, [num_samples, num_classes] for multi-class)
+    return torch.stack(results)
 
 
 def get_batch_predictions(models, augmented_inputs, device, softmax_application):
@@ -308,6 +367,19 @@ def model_calibration_plot(true_labels, predictions):
     plt.show()
 
 def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, swarmplot=True):
+    """
+    Plot a boxplot (and optionally a swarmplot) for uncertainty quantification (UQ) methods.
+
+    Args:
+        correct_predictions (list): List of predictions for correct results.
+        incorrect_predictions (list): List of predictions for incorrect results.
+        y_title (str): Label for the y-axis.
+        title (str): Title of the plot.
+        swarmplot (bool, optional): If True, adds a swarmplot overlay. Defaults to True.
+
+        sns.swarmplot(x='Category', y=y_title, data=df, color='black', alpha=0.3)
+        None
+    """
     df = pd.DataFrame({
         y_title: correct_predictions + incorrect_predictions,
         'Category': ['Correct Results'] * len(correct_predictions) + ['Incorrect Results'] * len(incorrect_predictions)
@@ -321,25 +393,51 @@ def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, s
         sns.swarmplot(x='Category', y=y_title, data=df, color='k', alpha=0.3)
     
     # Show the plot
-    plt.title(title)
+    plt.title(title, fontsize=14)
     plt.show()
 
 def roc_curve_UQ_method_computation(correct_predictions, incorrect_predictions):
+    """
+    Compute the ROC curve and AUC score for uncertainty quantification methods.
+
+    Args:
+        correct_predictions (list): List of predictions for correct results.
+        incorrect_predictions (list): List of predictions for incorrect results.
+
+    Returns:
+        tuple: A tuple containing:
+            - fpr (numpy.ndarray): False positive rates.
+            - tpr (numpy.ndarray): True positive rates.
+            - auc_score (float): Area under the ROC curve.
+    """
     failures_gstd = np.ones(len(incorrect_predictions))
     success_gstd = np.zeros(len(correct_predictions))
     
+    # Concatenate arrays once
+    gstd = np.concatenate((failures_gstd, success_gstd))
+    predictions = np.concatenate((incorrect_predictions, correct_predictions))
+    
     # Calculate ROC curve
-    fpr, tpr, _ = roc_curve(np.concatenate((failures_gstd, success_gstd)), np.concatenate((incorrect_predictions, correct_predictions)))
+    fpr, tpr, _ = roc_curve(gstd, predictions)
 
     # Calculate and print AUC
-    auc_score = roc_auc_score(np.concatenate((failures_gstd, success_gstd)), np.concatenate((incorrect_predictions, correct_predictions)))
+    auc_score = roc_auc_score(gstd, predictions)
     
     return fpr, tpr, auc_score
 
-def roc_curve_UQ_methods_plot(method_names, fprs, tprs, auc_scores): 
+def roc_curve_UQ_methods_plot(method_names, fprs, tprs, auc_scores):
+    """
+    Plot the ROC curve for different UQ methods.
+
+    Args:
+        method_names (list): List of method names.
+        fprs (list): List of false positive rates for each method.
+        tprs (list): List of true positive rates for each method.
+        auc_scores (list): List of AUC scores for each method.
+    """
     # Plot the ROC curve
     plt.figure()
-    for fpr, tpr, auc_score, method_name in zip(fprs, tprs, auc_scores, method_names): 
+    for fpr, tpr, auc_score, method_name in zip(fprs, tprs, auc_scores, method_names):
         plt.plot(fpr, tpr, lw=2, label=f'AUC {method_name}: {auc_score:.2f}')
     
     plt.plot([0, 1], [0, 1], color='gray', lw=2, linestyle='--')
@@ -354,13 +452,13 @@ def roc_curve_UQ_methods_plot(method_names, fprs, tprs, auc_scores):
 def standardize_and_mean_ensembling(distributions):
     """
     Standardizes any number of distributions using a global mean and standard deviation.
-    Returns a single column array with the maximum value for each instance across the standardized distributions.
+    Returns a single column array with the mean value for each instance across the standardized distributions.
     
     Parameters:
     distributions: 2D numpy array, where each column represents a different distribution (uncertainty method).
     
     Returns:
-    max_values: 1D numpy array containing the maximum standardized value for each row.
+    mean_values: 1D numpy array containing the mean standardized value for each row.
     """
     # Flatten the array to compute the global mean and standard deviation
     combined = distributions.flatten()
@@ -372,7 +470,7 @@ def standardize_and_mean_ensembling(distributions):
     # Apply z-score standardization to each distribution (column)
     standardized_distributions = (distributions - global_mean) / global_std_dev
     
-    # Find the maximum standardized value for each instance (row)
+    # Compute the mean standardized value for each instance (row)
     mean_values = np.mean(standardized_distributions, axis=1)
     
     return mean_values
@@ -399,7 +497,7 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
     batch_norm (bool, optional): Whether to use batch normalization. Default is False.
     mean (bool or list, optional): Mean for normalization. Default is False.
     std (bool or list, optional): Standard deviation for normalization. Default is False.
-    bw (bool, optional): Whether to convert images to black and white. Default is True.
+    nb_channels (int, optional): Number of channels in the input images. Default is 1.
     Returns:
     tuple: A tuple containing:
         - results_dict (dict): Dictionary with augmentation policies as keys and predictions as values.
@@ -423,12 +521,8 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
         # Apply the policy and get the predictions
         predictions = apply_policy_and_get_predictions(data_loader, models, augment_transform, device, softmax_application=softmax_application)
         # Store the results in the dictionary with a unique key for each random policy
-        policy_key = str(augment_transform.transforms[2].get_transform()) if nb_channels == 1 else str(augment_transform.transforms[1].get_transform())
         # Extract the policy key based on the number of channels
-        if nb_channels == 1:
-            policy_key = str(augment_transform.transforms[2].get_transform())
-        else:
-            policy_key = str(augment_transform.transforms[1].get_transform())
+        policy_key = str(augment_transform.transforms[2].get_transform()) if nb_channels == 1 else str(augment_transform.transforms[1].get_transform())
         
         # Store the predictions in the results dictionary with the policy key
         results_dict[policy_key] = predictions
@@ -518,7 +612,6 @@ def group_and_merge_similar_augmentations(policies, keys):
 
     return result
 
-
 def prioritize_and_merge_with_similarity(results, keys, top_k=5):
     """
     Prioritize augmentations from top-performing searches considering similarity,
@@ -549,35 +642,6 @@ def prioritize_and_merge_with_similarity(results, keys, top_k=5):
 
     return merged_augmentations
 
-def apply_policy_and_get_predictions(data_loader, models, augment_transform, device, softmax_application=False):
-    results = []
-    
-    # Predict for each sample in the test set
-    for batch in data_loader:
-        if isinstance(batch, dict):
-            batch = (batch['image'], batch['label'])  # Convert to tuple
-
-        images = batch[0]  # Access the images using positional indexing
-        augmented_inputs = torch.stack([augment_transform(image) for image in images])
-
-        with torch.no_grad():
-            if isinstance(models, list):
-                batch_predictions = []
-                for model in models:
-                    model.to(device)
-                    model_preds = get_prediction(model, augmented_inputs, device, softmax_application)
-                    batch_predictions.append(model_preds)
-                
-                stacked_preds = np.stack(batch_predictions, axis=0)
-                # Average predictions for each sample in the batch across models
-                predictions = np.mean(stacked_preds, axis=0) 
-            else: 
-                models.to(device)
-                predictions = get_prediction(models, augmented_inputs, device, softmax_application)
-            results.extend(predictions)
-    
-    # Return the results as a numpy array (shape: [num_samples, 1] for binary, [num_samples, num_classes] for multi-class)
-    return np.array(results)
 
 def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, min_improvement=0.005, patience=5):
     """
