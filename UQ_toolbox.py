@@ -153,33 +153,25 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
     """
     if usingBetterRandAugment:
         if isinstance(transformations, list):
-            augmented_inputs = torch.stack(
-                [torch.stack(
-                    [transforms.Compose([
-                        transforms.ToPILImage(),
-                        *([to_3_channels] if nb_channels == 1 else []),  # Conditionally add to_3_channels
-                        BetterRandAugment(n=n, m=m, resample=False, transform=policy, verbose=True, randomize_sign=False, image_size=image_size),
-                        *([to_1_channel] if nb_channels == 1 else []),  # Conditionally add to_1_channel
-                        transforms.PILToTensor(),
-                        transforms.Lambda(lambda x: x.float()) if nb_channels == 1 else transforms.ConvertImageDtype(torch.float),
-                        *([transforms.Normalize(mean=mean, std=std)] if batch_norm is False else [])
-                    ])(image) for policy in transformations]  # Use only up to `nb_augmentations` policies
-                ) for image in images], dim=0
-            )  # Shape: [batch_size, num_augmentations, C, H, W]
+            rand_aug_policies = [BetterRandAugment(n=n, m=m, resample=False, transform=policy, verbose=True, randomize_sign=False, image_size=image_size) for policy in transformations]
+            
         elif transformations is False:
-            augmented_inputs = torch.stack(
-                [torch.stack(
-                    [transforms.Compose([
-                        transforms.ToPILImage(),
-                        *([to_3_channels] if nb_channels == 1 else []),  # Conditionally add to_3_channels
-                        BetterRandAugment(n, m, True, False, randomize_sign=False, image_size=image_size),
-                        *([to_1_channel] if nb_channels == 1 else []),  # Conditionally add to_1_channel
-                        transforms.PILToTensor(),
-                        transforms.Lambda(lambda x: x.float()) if nb_channels == 1 else transforms.ConvertImageDtype(torch.float),
-                        *([transforms.Normalize(mean=mean, std=std)] if not batch_norm else [])
-                    ])(image) for _ in range(nb_augmentations)]  # Use only up to `nb_augmentations` policies
-                ) for image in images], dim=0
-            )  # Shape: [batch_size, num_augmentations, C, H, W]
+            rand_aug_policies = [BetterRandAugment(n, m, True, False, randomize_sign=False, image_size=image_size) for _ in range(nb_augmentations)] 
+
+        augmentations = [transforms.Compose([
+                    transforms.ToPILImage(),
+                    *([to_3_channels] if nb_channels == 1 else []),  # Conditionally add to_3_channels
+                    rand_aug,
+                    *([to_1_channel] if nb_channels == 1 else []),  # Conditionally add to_1_channel
+                    transforms.PILToTensor(),
+                    transforms.Lambda(lambda x: x.float()) if nb_channels == 1 else transforms.ConvertImageDtype(torch.float),
+                    *([transforms.Normalize(mean=mean, std=std)] if not batch_norm else [])
+                ]) for rand_aug in rand_aug_policies]
+        augmented_inputs = torch.stack(
+            [torch.stack(
+                augmentations(image) 
+            ) for image in images], dim=0
+        )  # Shape: [batch_size, num_augmentations, C, H, W]
 
     else:
         augmented_inputs = torch.stack(
@@ -189,49 +181,6 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
     
     augmented_inputs = augmented_inputs.view(-1, *augmented_inputs.shape[2:])  # Shape: [batch_size * num_augmentations, C, H, W]
     return augmented_inputs
-
-
-def apply_policy_and_get_predictions(data_loader, models, augment_transform, device, softmax_application=False):
-    """
-    Apply augmentation policy to input data and get predictions from the model(s).
-    Args:
-        data_loader (torch.utils.data.DataLoader): DataLoader for the dataset to predict on.
-        models (torch.nn.Module or list of torch.nn.Module): A single model or a list of models to use for predictions.
-        augment_transform (callable): A function or transform to apply to each image for augmentation.
-        device (torch.device): The device to run the model(s) on (e.g., 'cpu' or 'cuda').
-        softmax_application (bool, optional): Whether to apply softmax to the model outputs. Defaults to False.
-    Returns:
-        torch.Tensor: A tensor containing the predictions for each sample in the dataset. The shape will be 
-                      [num_samples, 1] for binary classification or [num_samples, num_classes] for multi-class classification.
-    """
-    results = []
-    
-    # Predict for each sample in the test set
-    for batch in data_loader:
-        if isinstance(batch, dict):
-            batch = (batch['image'], batch['label'])  # Convert to tuple
-
-        images = batch[0]  # Access the images using positional indexing
-        augmented_inputs = torch.stack([augment_transform(image) for image in images])
-
-        with torch.no_grad():
-            if isinstance(models, list):
-                batch_predictions = []
-                for model in models:
-                    model.to(device)
-                    model_preds = get_prediction(model, augmented_inputs, device, softmax_application)
-                    batch_predictions.append(model_preds)
-                
-                stacked_preds = torch.stack(batch_predictions, dim=0)
-                # Average predictions for each sample in the batch across models
-                predictions = torch.mean(stacked_preds, axis=0) 
-            else: 
-                models.to(device)
-                predictions = get_prediction(models, augmented_inputs, device, softmax_application)
-            results.extend(predictions)
-    
-    # Return the results as a torch tensor (shape: [num_samples, 1] for binary, [num_samples, num_classes] for multi-class)
-    return torch.stack(results)
 
 
 def get_batch_predictions(models, augmented_inputs, device, softmax_application):
@@ -507,28 +456,31 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
     
     # Create folder for saving policies if it doesn't exist
     os.makedirs(folder_name, exist_ok=True)
+    
+    all_images = []
+    for batch in data_loader:
+        if isinstance(batch, dict):
+            batch = (batch['image'], batch['label'])  # Convert to tuple
+
+        images = batch[0]  # Access the images using positional indexing
+        all_images.append(images)
+    
+    all_images = torch.cat(all_images, dim=0)  # Concatenate all batch images into one tensor
+    
     for i in range(num_policies):
         print(f'augmentation n:{i}')
-        augment_transform = transforms.Compose([
-            transforms.ToPILImage(),
-            *([to_3_channels] if nb_channels == 1 else []),  # Conditionally add to_3_channels
-            BetterRandAugment(N, M, True, False, randomize_sign=False, image_size=image_size),
-            *([to_1_channel] if nb_channels == 1 else []),  # Conditionally add to_1_channel
-            transforms.PILToTensor(),
-            transforms.Lambda(lambda x: x.float()) if nb_channels == 1 else transforms.ConvertImageDtype(torch.float),
-            *([transforms.Normalize(mean=mean, std=std)] if not batch_norm else [])
-        ])
-        # Apply the policy and get the predictions
-        predictions = apply_policy_and_get_predictions(data_loader, models, augment_transform, device, softmax_application=softmax_application)
-        # Store the results in the dictionary with a unique key for each random policy
-        # Extract the policy key based on the number of channels
-        policy_key = str(augment_transform.transforms[2].get_transform()) if nb_channels == 1 else str(augment_transform.transforms[1].get_transform())
         
-        # Store the predictions in the results dictionary with the policy key
+        # Apply the policy and get the predictions
+        augment_transform = apply_augmentations(all_images, num_policies, usingBetterRandAugment=True, n=N, m=M, batch_norm=batch_norm, nb_channels=nb_channels, mean=mean, std=std, image_size=image_size, transformations=False)
+        predictions = get_batch_predictions(models, augment_transform, device, softmax_application)
+        
+        # Store the results in the dictionary with a unique key for each random policy
+        policy_key = str(transformations[0].get_transform()) if usingBetterRandAugment else "default_policy"
         results_dict[policy_key] = predictions
+        
         # Saving results in a .npz file in the 'savedpolicies' folder
         filename = f'{folder_name}/N{N}_M{M}_{policy_key}.npz'
-        np.savez_compressed(filename, predictions=predictions)
+        np.savez_compressed(filename, predictions=predictions.numpy())
 
     dict_name = f'results_randaugment_{num_policies}TTA_N{N}_M{M}'
     
