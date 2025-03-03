@@ -899,7 +899,7 @@ def visualize_input_shap_overlayed_multimodel(
     plt.tight_layout()
     plt.show()
     
-def extract_latent_space_and_compute_shap_importance(model, data_loader, device, importance=True, classifierheadwrapper=None):
+def extract_latent_space_and_compute_shap_importance(model, data_loader, device, layer_to_be_hooked, importance=True, classifierheadwrapper=None):
     """
     Compute SHAP values for the penultimate layer of the model and track success/failure.
 
@@ -925,13 +925,17 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
     def hook(module, input, output):
         penultimate_features.append(output.detach())
 
-    hook_handle = model.fc1.register_forward_hook(hook)  # Attach hook
+    hook_handle = layer_to_be_hooked.register_forward_hook(hook)  # Attach hook
 
     # Collect features, labels, and predictions
     with torch.no_grad():
         for batch in data_loader:
-            images = batch['image'].to(device)
-            labels = batch['shape'].cpu().numpy()
+            
+            if isinstance(batch, dict):
+                batch = (batch['image'], batch['label'])  # Convert to tuple
+
+            images = batch[0]  # Access the images using positional indexing
+            labels = batch[1].cpu().numpy()
             all_labels.extend(labels)
 
             # Compute model predictions
