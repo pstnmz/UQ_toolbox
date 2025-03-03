@@ -88,7 +88,7 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
     Perform Test-Time Augmentation (TTA) on a batch of images using specified transformations and models.
 
     Args:
-        transformations (callable or list): Transformations to apply to each image.
+        transformations (callable or list): Transformations to apply to each image. Must be a list when usingBetterRandAugment is True.
         models (torch.nn.Module or list): Model or list of models to use for predictions.
         data_loader (torch.utils.data.DataLoader): DataLoader providing the images.
         device (torch.device): Device to run the models on (e.g., 'cpu' or 'cuda').
@@ -106,6 +106,7 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
     Returns:
         tuple: A tuple containing:
             - stds (list): List of standard deviations for each sample.
+            - averaged_predictions (torch.Tensor): Averaged predictions for each sample.
     """
     if usingBetterRandAugment and not isinstance(transformations, list):
         raise ValueError("Transformations must be a list when usingBetterRandAugment.")
@@ -126,10 +127,10 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
         batch_predictions = [get_batch_predictions(models, augmented_input, device, softmax_application) for augmented_input in augmented_inputs]
         averaged_predictions = [average_predictions(pred, all_images.size(0), nb_augmentations) for pred in batch_predictions]
 
-        averaged_predictions = torch.stack(averaged_predictions, dim=0)  # Shape: [nb_augmentations, batch_size, num_classes]
-        averaged_predictions = averaged_predictions.view(all_images.size(0), nb_augmentations, -1)  # Shape: [batch_size, nb_augmentations, num_classes]
+        averaged_predictions = torch.stack(averaged_predictions, dim=0).permute(1, 0, 2)  # Shape: [batch_size, nb_augmentations, num_classes]
+        #averaged_predictions = averaged_predictions.view(all_images.size(0), nb_augmentations, -1)  # Shape: [batch_size, nb_augmentations, num_classes]
         
-        stds = ensembling_stds_computation(averaged_predictions)
+        stds = compute_stds(averaged_predictions)
     
     return stds, averaged_predictions
 
@@ -258,11 +259,13 @@ def get_batch_predictions(models, augmented_inputs, device, softmax_application)
         torch.Tensor: Batch predictions.
     """
     if isinstance(models, list):
-        batch_predictions = [
-            get_prediction(model, augmented_inputs, device, softmax_application) for model in models
-        ]
+        batch_predictions = []
+        for model in models:
+            prediction = get_prediction(model, augmented_inputs, device, softmax_application)
+            batch_predictions.append(prediction)
     else:
-        batch_predictions = [get_prediction(models, augmented_inputs, device, softmax_application)]
+        prediction = get_prediction(models, augmented_inputs, device, softmax_application)
+        batch_predictions = [prediction]
     
     batch_predictions = torch.stack(batch_predictions, dim=0)  # Shape: [num_models, batch_size * num_augmentations, num_classes]
     return batch_predictions
@@ -293,20 +296,20 @@ def average_predictions(batch_predictions, batch_size=False, nb_augmentations=Fa
     return averaged_predictions
 
 
-def compute_stds(global_preds):
+def compute_stds(averaged_predictions):
     """
     Compute standard deviations for the predictions.
 
     Args:
-        global_preds (torch.Tensor): Global predictions.
+        averaged_predictions (torch.Tensor): Averaged predictions.
 
     Returns:
         list: List of standard deviations for each sample.
     """
-    if global_preds.ndim == 2:
-        stds = torch.std(global_preds, dim=1).squeeze().tolist()  # Binary classification: shape (num_models, num_samples)
-    elif global_preds.ndim == 3:
-        stds_per_class = torch.std(global_preds, dim=1).squeeze()  # Multiclass classification: shape (num_models, num_samples, num_classes)
+    if averaged_predictions.ndim == 2:
+        stds = torch.std(averaged_predictions, dim=1).squeeze().tolist()  # Binary classification: shape (num_models, num_samples)
+    elif averaged_predictions.ndim == 3:
+        stds_per_class = torch.std(averaged_predictions, dim=1).squeeze()  # Multiclass classification: shape (num_models, num_samples, num_classes)
         stds = torch.mean(stds_per_class, dim=1).tolist()
     return stds
 
