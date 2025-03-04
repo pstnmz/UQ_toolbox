@@ -939,6 +939,7 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
             all_labels.extend(labels)
 
             # Compute model predictions
+            images.to(device)
             preds = model(images).cpu().numpy()
             predicted_classes = (preds > 0.5).astype(int)  # Convert to binary classification
             
