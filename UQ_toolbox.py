@@ -804,7 +804,7 @@ def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, 
 
 
 def visualize_input_shap_overlayed_multimodel(
-    models, eval_dataloader, device, success_indices, failure_indices, sample_size=5
+    models, eval_dataloader, device, success_indices, failure_indices, sample_size=5, max_background_samples=1000
 ):
     """
     Visualize SHAP values overlayed on the original image for input pixels across multiple models.
@@ -816,6 +816,7 @@ def visualize_input_shap_overlayed_multimodel(
         success_indices (list): Indices of success cases.
         failure_indices (list): Indices of failure cases.
         sample_size (int): Number of random success and failure cases to visualize.
+        max_background_samples (int): Maximum number of background samples to use for SHAP computation. Defaults to 1000.
     """
     for model in models:
         model.eval()
@@ -852,6 +853,10 @@ def visualize_input_shap_overlayed_multimodel(
     images_to_explain = torch.stack(images_to_explain).to(device)  # Shape: (sample_size, 1, H, W)
     labels_to_explain = np.array(labels_to_explain)
     background_images = torch.cat(background_images).to(device)  # Combine all background images
+
+    # Limit the number of background samples
+    if len(background_images) > max_background_samples:
+        background_images = background_images[:max_background_samples]
 
     # Create subplots
     num_images = len(selected_indices)
@@ -899,7 +904,7 @@ def visualize_input_shap_overlayed_multimodel(
     plt.tight_layout()
     plt.show()
     
-def extract_latent_space_and_compute_shap_importance(model, data_loader, device, layer_to_be_hooked, importance=True, classifierheadwrapper=None):
+def extract_latent_space_and_compute_shap_importance(model, data_loader, device, layer_to_be_hooked, importance=True, classifierheadwrapper=None, max_background_samples=1000):
     """
     Compute SHAP values for the penultimate layer of the model and track success/failure.
 
@@ -908,6 +913,7 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
         data_loader (DataLoader): DataLoader for the test set.
         device (str): The device to run computations on ('cuda' or 'cpu').
         importance (bool): Whether to compute SHAP values or only return features.
+        max_background_samples (int): Maximum number of background samples to use for SHAP computation. Defaults to 1000.
 
     Returns:
         tuple: 
@@ -923,14 +929,17 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
     predictions = []
     
     def hook(module, input, output):
-        penultimate_features.append(output.detach())
+        # The output of the average pooling layer has the shape (nb_images, size of final avg_pool op, 1, 1)
+        # because it reduces the spatial dimensions (height and width) to 1x1.
+        # Flatten the output to (nb_images, size of final avg_pool op)
+        penultimate_features.append(output.detach().flatten(1))
 
     hook_handle = layer_to_be_hooked.register_forward_hook(hook)  # Attach hook
 
     # Collect features, labels, and predictions
+    background_images = []
     with torch.no_grad():
         for batch in data_loader:
-            
             if isinstance(batch, dict):
                 batch = (batch['image'], batch['label'])  # Convert to tuple
 
@@ -939,28 +948,40 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
             all_labels.extend(labels)
 
             # Compute model predictions
-            images.to(device)
+            images = images.to(device)
             preds = model(images).cpu().numpy()
-            predicted_classes = (preds > 0.5).astype(int)  # Convert to binary classification
-            
-            # Track success (1) / failure (0)
-            success_flags.extend((predicted_classes.flatten() == labels).astype(int))
+            if preds.ndim == 1:
+                predicted_classes = (preds > 0.5).astype(int)  # Convert to binary classification
+                # Track success (1) / failure (0)
+                success_flags.extend((predicted_classes.flatten() == labels).astype(int))
+            else:
+                predicted_classes = np.argmax(np.array(F.softmax(torch.tensor(preds), dim=1)), axis=1)
+                # Track success (1) / failure (0)
+                success_flags.extend((predicted_classes == labels.ravel()).astype(int))
+
             predictions.extend(preds)
+            background_images.append(images)
 
     # Remove hook
     hook_handle.remove()
 
     # Prepare features and labels
-    features = torch.cat(penultimate_features).cpu().detach().numpy()
+    features = torch.cat(penultimate_features).cpu().detach()
     labels = np.array(all_labels)
     success_flags = np.array(success_flags)  # Convert to numpy array for easier manipulation
+    background_images = torch.cat(background_images)  # Combine all background images
+    background_features = features.to(device)
+
+    # Limit the number of background samples
+    if len(background_features) > max_background_samples:
+        background_features = background_features[:max_background_samples]
 
     if importance:
         # Wrap the classifier head
         classifier_head = classifierheadwrapper
 
         # SHAP Explainer for the classifier head
-        explainer = shap.DeepExplainer(classifier_head, torch.tensor(features, dtype=torch.float32, device=device))
+        explainer = shap.DeepExplainer(classifier_head, torch.tensor(background_features, dtype=torch.float32, device=device))
 
         # Compute SHAP values
         shap_values = explainer.shap_values(torch.tensor(features, dtype=torch.float32, device=device))
