@@ -43,7 +43,6 @@ def compute_shap_for_fold(fold, model, test_loader, device, results):
         device=device,
         layer_to_be_hooked=model.model.avgpool,
         classifierheadwrapper=classifier_head,
-        shap_explainer='DeepExplainer',
         max_background_samples=1000
     )
     results[fold] = (shap_features, shap_values, success.squeeze() if success.ndim > 1 else success)

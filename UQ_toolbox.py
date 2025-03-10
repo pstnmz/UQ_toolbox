@@ -981,10 +981,10 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
         classifier_head = classifierheadwrapper
 
         # SHAP Explainer for the classifier head
-        explainer = shap.DeepExplainer(classifier_head, torch.tensor(background_features, dtype=torch.float32, device=device))
+        explainer = shap.DeepExplainer(classifier_head, background_features.clone().detach())
 
         # Compute SHAP values
-        shap_values = explainer.shap_values(torch.tensor(features, dtype=torch.float32, device=device))
+        shap_values = explainer.shap_values(features.clone().detach())
         shap_values = shap_values.squeeze(axis=-1)
 
         return shap_values, features, labels, success_flags
