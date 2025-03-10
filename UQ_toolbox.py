@@ -904,7 +904,7 @@ def visualize_input_shap_overlayed_multimodel(
     plt.tight_layout()
     plt.show()
     
-def extract_latent_space_and_compute_shap_importance(model, data_loader, device, layer_to_be_hooked, importance=True, classifierheadwrapper=None, max_background_samples=1000, shap_explainer='DeepExplainer'):
+def extract_latent_space_and_compute_shap_importance(model, data_loader, device, layer_to_be_hooked, importance=True, classifierheadwrapper=None, max_background_samples=1000):
     """
     Compute SHAP values for the penultimate layer of the model and track success/failure.
 
@@ -981,15 +981,11 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
         classifier_head = classifierheadwrapper
 
         # SHAP Explainer for the classifier head
-        if shap_explainer=="DeepExplainer":
-            explainer = shap.DeepExplainer(classifier_head.to(device), background_features.clone().detach())
+        explainer = shap.DeepExplainer(classifier_head, torch.tensor(background_features, dtype=torch.float32, device=device))
 
         # Compute SHAP values
-        shap_values = explainer.shap_values(features.clone().detach())
-        if shap_values.ndim > 2:
-            shap_values = np.mean(np.abs(shap_values), axis=2)
-        else:
-            shap_values = shap_values.squeeze(axis=-1)
+        shap_values = explainer.shap_values(torch.tensor(features, dtype=torch.float32, device=device))
+        shap_values = shap_values.squeeze(axis=-1)
 
         return shap_values, features, labels, success_flags
     else:
