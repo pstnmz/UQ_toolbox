@@ -110,7 +110,7 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
     """
     if usingBetterRandAugment and not isinstance(transformations, list):
         raise ValueError("Transformations must be a list when usingBetterRandAugment.")
-    if transformations is not False:
+    if usingBetterRandAugment:
         nb_augmentations = len(transformations)
     with torch.no_grad():
         all_images = []
@@ -123,7 +123,7 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
         
         all_images = torch.cat(all_images, dim=0)  # Concatenate all batch images into one tensor
 
-        augmented_inputs, _ = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, batch_norm, nb_channels, mean, std, image_size, transformations)
+        augmented_inputs = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, batch_norm, nb_channels, mean, std, image_size, transformations)
         batch_predictions = [get_batch_predictions(models, augmented_input, device, softmax_application) for augmented_input in augmented_inputs]
         averaged_predictions = [average_predictions(pred, all_images.size(0), nb_augmentations) for pred in batch_predictions]
 
@@ -208,6 +208,7 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
     Returns:
         torch.Tensor: Augmented images.
     """
+    augmented_inputs = []
     if usingBetterRandAugment:
         if isinstance(transformations, list):
             rand_aug_policies = [BetterRandAugment(n=n, m=m, resample=False, transform=policy, verbose=True, randomize_sign=False, image_size=image_size) for policy in transformations]
@@ -224,7 +225,7 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
                     transforms.Lambda(lambda x: x.float()) if nb_channels == 1 else transforms.ConvertImageDtype(torch.float),
                     *([transforms.Normalize(mean=mean, std=std)] if not batch_norm else [])
                 ]) for rand_aug in rand_aug_policies]
-        augmented_inputs = []
+        
         for i, augmentation in enumerate(augmentations):
             print(f"Applying augmentation n : {i}")
             augmented_inputs.append(torch.stack([augmentation(image) for image in images]))
@@ -233,16 +234,10 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
     else:
         for i in range(nb_augmentations):
             print(f"Applying augmentation n : {i}")
-            augmented_inputs = torch.stack(
-                torch.stack([transformations(image) for image in images]), 
-                dim=0
-            )  # Shape: [batch_size, num_augmentations, C, H, W]
+            augmented_inputs.append(torch.stack([transformations(image) for image in images]))
+        augmented_inputs = torch.stack(augmented_inputs, dim=0)  # Shape: [batch_size, num_augmentations, C, H, W]
     
-    #augmented_inputs = augmented_inputs.view(-1, *augmented_inputs.shape[2:])  # Shape: [batch_size * num_augmentations, C, H, W]
-    if usingBetterRandAugment:
-        return augmented_inputs, augmentations
-    else:
-        return augmented_inputs
+    return augmented_inputs
 
 
 def get_batch_predictions(models, augmented_inputs, device, softmax_application):
@@ -398,7 +393,7 @@ def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, s
     """
     df = pd.DataFrame({
         y_title: correct_predictions + incorrect_predictions,
-        'Category': ['Correct Results'] * len(correct_predictions) + ['Incorrect Results'] * len(incorrect_predictions)
+        'Category': ['Succès'] * len(correct_predictions) + ['Échecs'] * len(incorrect_predictions)
         })
     
     plt.figure(figsize=(10, 6))
@@ -409,7 +404,11 @@ def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, s
         sns.swarmplot(x='Category', y=y_title, data=df, color='k', alpha=0.3)
     
     # Show the plot
-    plt.title(title, fontsize=14)
+    plt.title(title, fontsize=16)
+    plt.xlabel('Category', fontsize=14)
+    plt.ylabel(y_title, fontsize=14)
+    plt.xticks(fontsize=14)
+    plt.yticks(fontsize=14)
     plt.show()
 
 def roc_curve_UQ_method_computation(correct_predictions, incorrect_predictions):
@@ -985,7 +984,6 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
 
         # Compute SHAP values
         shap_values = explainer.shap_values(features.clone().detach())
-        shap_values = shap_values.squeeze(axis=-1)
 
         return shap_values, features, labels, success_flags
     else:
