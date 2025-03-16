@@ -237,7 +237,10 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
             augmented_inputs.append(torch.stack([transformations(image) for image in images]))
         augmented_inputs = torch.stack(augmented_inputs, dim=0)  # Shape: [batch_size, num_augmentations, C, H, W]
     
-    return augmented_inputs
+    if usingBetterRandAugment:
+        return augmented_inputs, augmentations
+    else:
+        return augmented_inputs
 
 
 def get_batch_predictions(models, augmented_inputs, device, softmax_application):

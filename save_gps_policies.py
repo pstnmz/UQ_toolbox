@@ -1,9 +1,5 @@
 import sys
 import os
-
-# Get the absolute path to the root directory where UQ_toolbox.py is located
-root_dir = os.path.abspath(os.path.join(os.path.dirname('medMNIST'), '..'))
-sys.path.append(root_dir)
 import medmnist
 from medmnist import INFO, Evaluator
 import torch
@@ -46,7 +42,7 @@ test_loader = DataLoader(dataset=test_dataset, batch_size=128, shuffle=False)
 models = []
 for i in range(5):
     model = ResNet18(num_classes=num_classes)
-    model.load_state_dict(torch.load(f'resnet18_organamnist{i}.pt'))
+    model.load_state_dict(torch.load(f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/resnet18_organamnist{i}.pt'))
     model = model.to(device)
     model.eval()
     models.append(model)
@@ -96,7 +92,7 @@ y_scores_calibration = []
 indiv_scores_calibration = [[], [], [], [], []]
 
 with torch.no_grad():
-    for data, target in calibration_loader:
+    for data, target in test_loader:
         data, target = data.to(device), target.to(device)
         outputs = [model(data) for model in models]
         for ind, output in zip(indiv_scores_calibration, outputs):
@@ -118,4 +114,4 @@ incorrect_predictions = [i for i in range(len(y_true)) if y_true[i] != np.argmax
 correct_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] == np.argmax(y_scores_calibration[i])]
 incorrect_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] != np.argmax(y_scores_calibration[i])]
 
-uq.apply_randaugment_and_store_results(calibration_loader, models, 2, 45, 500, device, folder_name=f'savedpolicies', batch_norm=True, image_size=28, nb_channels=3, softmax_application=True)
+uq.apply_randaugment_and_store_results(calibration_loader, models, 2, 45, 500, device, folder_name=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/savedpolicies_testset', batch_norm=True, image_size=28, nb_channels=3, softmax_application=True)
