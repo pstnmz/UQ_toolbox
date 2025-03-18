@@ -123,7 +123,7 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
         
         all_images = torch.cat(all_images, dim=0)  # Concatenate all batch images into one tensor
 
-        augmented_inputs = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, batch_norm, nb_channels, mean, std, image_size, transformations)
+        augmented_inputs, _ = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, batch_norm, nb_channels, mean, std, image_size, transformations)
         batch_predictions = [get_batch_predictions(models, augmented_input, device, softmax_application) for augmented_input in augmented_inputs]
         averaged_predictions = [average_predictions(pred, all_images.size(0), nb_augmentations) for pred in batch_predictions]
 

@@ -114,4 +114,4 @@ incorrect_predictions = [i for i in range(len(y_true)) if y_true[i] != np.argmax
 correct_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] == np.argmax(y_scores_calibration[i])]
 incorrect_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] != np.argmax(y_scores_calibration[i])]
 
-uq.apply_randaugment_and_store_results(calibration_loader, models, 2, 45, 500, device, folder_name=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/savedpolicies_testset', batch_norm=True, image_size=28, nb_channels=3, softmax_application=True)
+uq.apply_randaugment_and_store_results(test_loader, models, 2, 45, 500, device, folder_name=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/savedpolicies_testset', batch_norm=True, image_size=28, nb_channels=3, softmax_application=True)
