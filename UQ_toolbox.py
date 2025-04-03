@@ -17,6 +17,8 @@ from collections import defaultdict
 from gps_augment.utils.randaugment import BetterRandAugment
 import shap
 import torch.multiprocessing as mp
+from sklearn.decomposition import PCA
+from sklearn.neighbors import NearestNeighbors
 
 class AddBatchDimension:
     def __call__(self, image):
@@ -1313,3 +1315,100 @@ def analyze_hyperplane_distance(train_latent, train_labels, eval_latent, eval_su
     
     return eval_distances
 
+def compute_mean_shap_values(shap_values, fold, nb_features=50):
+    
+    mean_shap_fold = []
+    print(f"SHAP Feature Importances Computation")
+
+    # Ensure shap_values is a 3D array
+    num_samples, num_features, num_classes = shap_values.shape
+
+    for class_idx in range(num_classes):
+        print(f"Class {class_idx}: SHAP Feature Importances")
+
+        # Extract SHAP values for the current class
+        class_shap_values = shap_values[:, :, class_idx]
+
+        # Create a DataFrame for SHAP values of the current class
+        shap_df = pd.DataFrame(
+            class_shap_values,
+            columns=[f"Feature_{i}" for i in range(num_features)]
+        )
+        
+        # Compute mean absolute SHAP values
+        mean_abs_shap = shap_df.abs().mean(axis=0)
+        
+        # Select top 50 features
+        top_n_features = mean_abs_shap.nlargest(nb_features).index
+        
+        # Keep only the top 50 features
+        shap_df_top_n = shap_df[top_n_features]
+        
+        shap_importance = display_shap_values(shap_df_top_n)
+        print(shap_importance)
+        mean_shap_fold.append((fold, class_idx, shap_importance))
+
+    return mean_shap_fold
+        
+def compute_knn_distances_to_train_data(model, train_loader, test_loader, layer, device, latent_spaces, mean_shap_importances, num_classes):
+    
+    latent_space_training, labels_training, _, _ = extract_latent_space_and_compute_shap_importance(
+        model=model,
+        data_loader=train_loader,
+        device=device,
+        layer_to_be_hooked=layer,
+        importance=False
+    )
+    
+    latent_space_test, labels_test, success_test, _ = extract_latent_space_and_compute_shap_importance(
+        model=model,
+        data_loader=test_loader,
+        device=device,
+        layer_to_be_hooked=layer,
+        importance=False
+    )
+    
+    train_latent_space = pd.DataFrame(latent_space_training, columns=latent_spaces.columns)
+    test_latent_space = pd.DataFrame(latent_space_test, columns=latent_spaces.columns)
+    
+    knn_distances_all = np.zeros(len(test_latent_space))
+    successes_all = np.zeros(len(test_latent_space))
+    
+    for i in range(num_classes):
+        print('class' + str(i))
+        train_latent_space_class = train_latent_space[mean_shap_importances[i][2].keys()]
+        
+        mask_training = labels_training == i
+        train_latent_space_filtered = train_latent_space_class[mask_training]
+        
+        print(f'Number of samples with true label {i}: {len(train_latent_space_filtered)}')
+        
+        test_latent_space_class = test_latent_space[mean_shap_importances[i][2].keys()]
+        
+        mask_test = labels_test == i
+        test_latent_space_filtered = test_latent_space_class[mask_test]
+        
+        print(f'Number of samples with true label {i}: {len(test_latent_space_filtered)}')
+        
+        success_test_filtered = success_test[mask_test.flatten()]
+        indices_test_filtered = np.where(mask_test.flatten())[0]
+        
+        scaler = StandardScaler()
+        train_latent_space_standardized = scaler.fit_transform(train_latent_space_filtered)
+        
+        pca = PCA(n_components=0.9)
+        train_latent_space_pca = pca.fit_transform(train_latent_space_standardized)
+        
+        test_latent_space_standardized = scaler.transform(test_latent_space_filtered)
+        test_latent_space_pca = pca.transform(test_latent_space_standardized)
+        
+        knn = NearestNeighbors(n_neighbors=5)
+        knn.fit(train_latent_space_pca)
+        distances, _ = knn.kneighbors(test_latent_space_pca)
+        
+        average_distances = distances.mean(axis=1)
+        
+        knn_distances_all[indices_test_filtered] = average_distances
+        successes_all[indices_test_filtered] = success_test_filtered
+
+    return knn_distances_all, successes_all
