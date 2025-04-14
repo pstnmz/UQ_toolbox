@@ -192,3 +192,14 @@ def evaluate_model(model, test_loader, data_flag, device=None):
     plt.ylabel('True')
     plt.title('Confusion Matrix')
     plt.show()
+
+def save_model(model, path):
+    """
+    Save the PyTorch model to the specified path.
+
+    Args:
+        model (torch.nn.Module): The model to save.
+        path (str): The file path to save the model.
+    """
+    torch.save(model.state_dict(), path)
+    print(f"Model saved to {path}")
