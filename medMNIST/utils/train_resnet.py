@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 from torchvision import models, transforms
+from torch.nn.functional import sigmoid
 import medmnist
 from medmnist import INFO
 import matplotlib.pyplot as plt
@@ -160,6 +161,9 @@ def evaluate_model(model, test_loader, data_flag, device=None):
                 output = torch.mean(torch.stack(outputs), dim=0)  # Average predictions
             else:
                 output = model(data)
+            
+            if len(np.unique(target.cpu().numpy())) == 2:  # Binary classification
+                output = sigmoid(output)  # Apply sigmoid for binary classification
 
             y_true.extend(target.cpu().numpy().flatten())
             y_score.extend(output.cpu().numpy().flatten())
