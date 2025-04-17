@@ -15,36 +15,6 @@ from sklearn.model_selection import StratifiedKFold
 import pickle
 import numpy as np
 
-def load_models(flag):
-
-    # Load organAMNIST dataset
-    data_flag = flag
-    info = INFO[data_flag]
-    num_classes = len(info['label'])
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # Load saved models
-    models = []
-    for i in range(5):
-        # Initialize the model
-        model = resnet18(weights=ResNet18_Weights.DEFAULT)
-        if num_classes == 2:
-            model.fc = nn.Linear(model.fc.in_features, 1)  # Output 1 value for binary classification
-        else:
-            model.fc = nn.Linear(model.fc.in_features, num_classes)  # Output logits for each class
-        
-        # Load the state dictionary
-        state_dict = torch.load(f'resnet18_{flag}{i}.pt')
-
-        # Remove the 'model.' prefix from the state_dict keys if necessary
-        state_dict = {k.replace('model.', ''): v for k, v in state_dict.items()}
-
-        # Load the modified state dictionary into the model
-        model.load_state_dict(state_dict)
-        model = model.to(device)
-        model.eval()
-        models.append(model)
-    return models
-
 def load_datasets(flag, transform):
     transform=transform
     
@@ -94,18 +64,38 @@ class ClassifierHeadWrapper(nn.Module):
 def repeat_channels(x):
     return x.repeat(3, 1, 1)
 
-def compute_shap_for_fold(fold, model, test_loader, device, results):
+def compute_shap_for_fold(fold, flag, transform, device_str, results):
     print(f'fold n{fold}')
-    classifier_head = ClassifierHeadWrapper(model.model).to(device)
+    device = torch.device(device_str)
+
+    # Load model inside the subprocess
+    model = resnet18(weights=ResNet18_Weights.DEFAULT)
+    num_classes = len(INFO[flag]['label'])
+    if num_classes == 2:
+        model.fc = nn.Linear(model.fc.in_features, 1)
+    else:
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
+    state_dict = torch.load(f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/resnet18_{flag}{fold}.pt')
+    state_dict = {k.replace('model.', ''): v for k, v in state_dict.items()}
+    model.load_state_dict(state_dict)
+    model = model.to(device).eval()
+
+    # Load dataset in subprocess
+    DataClass = getattr(medmnist, INFO[flag]['python_class'])
+    calibration_dataset = DataClass(split='val', download=True, transform=transform)
+    calibration_loader = DataLoader(calibration_dataset, batch_size=32, shuffle=False)
+
+    classifier_head = ClassifierHeadWrapper(model).to(device)
     shap_values, shap_features, labels, success = uq.extract_latent_space_and_compute_shap_importance(
-        model=model.to(device),
-        data_loader=test_loader,
+        model=model,
+        data_loader=calibration_loader,
         device=device,
-        layer_to_be_hooked=model.model.avgpool,
+        layer_to_be_hooked=model.avgpool,
         classifierheadwrapper=classifier_head,
         max_background_samples=100
     )
     results[fold] = (shap_features, shap_values, success.squeeze() if success.ndim > 1 else success)
+
 
 if __name__ == '__main__':
     mp.set_start_method('spawn')
@@ -114,11 +104,11 @@ if __name__ == '__main__':
     flag = 'breastmnist'
 
     transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[.5], std=[.5]),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
-        ])
-    models = load_models(flag)
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[.5], std=[.5]),
+        transforms.Lambda(repeat_channels)
+    ])
+    
     train_dataset, calibration_dataset, test_dataset, task_type = load_datasets(flag, transform)
     calibration_loader=DataLoader(calibration_dataset, batch_size=32, shuffle=False)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  
@@ -137,7 +127,7 @@ if __name__ == '__main__':
     # Create processes for folds 0, 1, 2
     processes = []
     for fold in range(3):
-        p = mp.Process(target=compute_shap_for_fold, args=(fold, models[fold], calibration_loader, devices[fold], results))
+        p = mp.Process(target=compute_shap_for_fold, args=(fold, flag, transform, devices[fold], results))
         p.start()
         processes.append(p)
 
@@ -147,7 +137,7 @@ if __name__ == '__main__':
 
     # Process folds 3 and 4 sequentially
     for fold in range(3, 5):
-        compute_shap_for_fold(fold, models[fold], calibration_loader, devices[fold], results)
+        compute_shap_for_fold(fold, flag, transform, devices[fold], results)
 
     # Collect results
     for fold in range(5):

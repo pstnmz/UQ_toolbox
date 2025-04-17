@@ -1,4 +1,5 @@
 **/savedpolicies/
 **/savedpolicies_testset/
+**/gps_augment_breastmnist/
 **/shap_results.pkl
 **/shap_results_calibration.pkl
