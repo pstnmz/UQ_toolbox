@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from sklearn.calibration import calibration_curve
-from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score, log_loss
+from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score, log_loss, brier_score_loss
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
 from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
@@ -13,12 +13,16 @@ import torch
 import re
 from torchvision import transforms
 import torch.nn.functional as F
+import torch.nn as nn
+import torch.optim as optim
 from collections import defaultdict
 from gps_augment.utils.randaugment import BetterRandAugment
 import shap
 import torch.multiprocessing as mp
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
+from sklearn.linear_model import LogisticRegression
+from sklearn.isotonic import IsotonicRegression
 
 class AddBatchDimension:
     def __call__(self, image):
@@ -371,18 +375,123 @@ def plot_calibration_curve(y_true, y_prob):
     prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=10, strategy='uniform')
     
     return prob_true, prob_pred
+
+class TemperatureScaler(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.temperature = nn.Parameter(torch.ones(1) * 1.5)
+
+    def forward(self, logits):
+        return logits / self.temperature
+
+def fit_temperature_scaling(logits, labels, max_iter=1000):
+    logits = torch.from_numpy(logits).float()
+    labels = torch.from_numpy(labels).long()
+
+    model = TemperatureScaler()
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.LBFGS([model.temperature], lr=0.01, max_iter=max_iter)
+
+    def closure():
+        optimizer.zero_grad()
+        loss = criterion(model(logits), labels)
+        loss.backward()
+        return loss
+
+    optimizer.step(closure)
+    return model
+
+def posthoc_calibration(y_scores, y_true, method_calibration='platt'):
+    """
+    Perform posthoc calibration using Platt scaling, isotonic regression, or temperature scaling.
+
+    Args:
+        y_scores (numpy.ndarray): Predicted probabilities (or logits if method_calibration='temperature').
+        y_true (numpy.ndarray): True labels.
+        method_calibration (str): Calibration method ('platt', 'isotonic', 'temperature').
+        logits (numpy.ndarray): Raw logits (required for temperature scaling).
+        multiclass (bool): Whether the problem is multiclass.
+
+    Returns:
+        calibrated_probs (numpy.ndarray): Calibrated probabilities.
+        model: The calibration model used.
+    """
+    if method_calibration == 'temperature':
+        model = fit_temperature_scaling(y_scores, y_true)
+        logits_tensor = torch.from_numpy(y_scores).float()
+        calibrated_logits = model(logits_tensor).detach()
+        calibrated_probs = torch.softmax(calibrated_logits, dim=1).numpy()
+        y_prob_true = calibrated_probs[np.arange(len(y_true)), y_true]
+
+    elif method_calibration == 'platt':
+        model = LogisticRegression()
+        model.fit(y_scores.reshape(-1, 1), y_true)
+        calibrated_probs = model.predict_proba(y_scores.reshape(-1, 1))[:, 1]
+        y_prob_true = calibrated_probs
+    elif method_calibration == 'isotonic':
+        model = IsotonicRegression(out_of_bounds='clip')
+        model.fit(y_scores, y_true)
+        calibrated_probs = model.predict(y_scores)
+        y_prob_true = calibrated_probs
+    else:
+        raise ValueError("Invalid method. Choose 'platt', 'isotonic', or 'temperature'.")
+    
+    
+
+    brier = brier_score_loss((y_true == np.argmax(calibrated_probs, axis=1)) if y_scores.ndim > 1 else y_true, y_prob_true)
+    print(f"Brier Score Loss ({method_calibration}): {brier:.4f}")
+
+    return calibrated_probs, model
         
-def model_calibration_plot(true_labels, predictions):
-    plt.figure(figsize=(10, 8))
-    plt.plot([0, 1], [0, 1], 'k--', label='Perfectly Calibrated')
-    prob_true, prob_pred = plot_calibration_curve(np.array(true_labels), np.array(predictions))
-    plt.plot(prob_pred, prob_true, marker='o', label=f'Model Calibration Curve')
-    plt.xlabel('Predicted Probability')
-    plt.ylabel('Fraction of Positives')
-    plt.title('Calibration Curve')
-    plt.legend()
-    plt.grid()
-    plt.show()
+def model_calibration_plot(true_labels, predictions, n_bins=10):
+    """
+    Plot a calibration curve (reliability diagram).
+    
+    - For binary classification: regular calibration curve.
+    - For multiclass: top-1 reliability diagram (based on confidence of predicted class).
+
+    Args:
+        true_labels (np.ndarray): True class labels.
+        predictions (np.ndarray): Probabilities from the model.
+        n_bins (int): Number of bins for calibration.
+    """
+
+    if predictions.ndim == 1:
+        # Binary case
+        plt.figure(figsize=(10, 8))
+        plt.plot([0, 1], [0, 1], 'k--', label='Perfectly Calibrated')
+        prob_true, prob_pred = plot_calibration_curve(np.array(true_labels), np.array(predictions))
+        plt.plot(prob_pred, prob_true, marker='o', label='Model Calibration Curve')
+        plt.xlabel('Predicted Probability')
+        plt.ylabel('Fraction of Positives')
+        plt.title('Calibration Curve (Binary)')
+        plt.legend()
+        plt.grid()
+        plt.show()
+    else:
+        # Multiclass Top-1 reliability diagram
+        y_true = np.array(true_labels)
+        y_prob = np.array(predictions)
+
+        # Top-1 predicted class and its confidence
+        top1_preds = np.argmax(y_prob, axis=1)
+        top1_confs = np.max(y_prob, axis=1)
+        top1_correct = (top1_preds == y_true).astype(int)
+
+        # Compute calibration curve for top-1 predictions
+        prob_true, prob_pred = calibration_curve(top1_correct, top1_confs, n_bins=n_bins, strategy='uniform')
+
+        # Plot
+        plt.figure(figsize=(10, 8))
+        plt.plot([0, 1], [0, 1], 'k--', label='Perfectly Calibrated')
+        plt.plot(prob_pred, prob_true, marker='o', label='Top-1 Reliability')
+        plt.xlabel('Confidence (Top-1 Prediction)')
+        plt.ylabel('Accuracy (Fraction Correct)')
+        plt.title('Top-1 Reliability Diagram (Multiclass)')
+        plt.legend()
+        plt.grid()
+        plt.show()
+
 
 def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, swarmplot=True):
     """
