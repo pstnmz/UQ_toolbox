@@ -386,20 +386,31 @@ class TemperatureScaler(nn.Module):
 
 def fit_temperature_scaling(logits, labels, max_iter=1000):
     logits = torch.from_numpy(logits).float()
-    labels = torch.from_numpy(labels).long()
+    if logits.ndim == 1:
+        logits = logits.unsqueeze(1)  # shape (N,) → (N, 1)
+
+    labels = torch.from_numpy(labels).float()
 
     model = TemperatureScaler()
-    criterion = nn.CrossEntropyLoss()
+    
+    # Choose the right loss based on binary vs multiclass
+    if logits.shape[1] == 1:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        labels = labels.long()  # CrossEntropy requires long labels
+        criterion = nn.CrossEntropyLoss()
+
     optimizer = optim.LBFGS([model.temperature], lr=0.01, max_iter=max_iter)
 
     def closure():
         optimizer.zero_grad()
-        loss = criterion(model(logits), labels)
+        loss = criterion(model(logits).squeeze(), labels)
         loss.backward()
         return loss
 
     optimizer.step(closure)
     return model
+
 
 def posthoc_calibration(y_scores, y_true, method_calibration='platt'):
     """
@@ -419,9 +430,17 @@ def posthoc_calibration(y_scores, y_true, method_calibration='platt'):
     if method_calibration == 'temperature':
         model = fit_temperature_scaling(y_scores, y_true)
         logits_tensor = torch.from_numpy(y_scores).float()
+        if logits_tensor.ndim == 1:
+            logits_tensor = logits_tensor.unsqueeze(1)
         calibrated_logits = model(logits_tensor).detach()
-        calibrated_probs = torch.softmax(calibrated_logits, dim=1).numpy()
-        y_prob_true = calibrated_probs[np.arange(len(y_true)), y_true]
+
+        # Binary or multiclass?
+        if calibrated_logits.ndim == 1 or calibrated_logits.shape[1] == 1:
+            calibrated_probs = torch.sigmoid(calibrated_logits).numpy()
+            y_prob_true = calibrated_probs.squeeze()
+        else:
+            calibrated_probs = torch.softmax(calibrated_logits, dim=1).numpy()
+            y_prob_true = calibrated_probs[np.arange(len(y_true)), y_true]
 
     elif method_calibration == 'platt':
         model = LogisticRegression()
@@ -456,7 +475,7 @@ def model_calibration_plot(true_labels, predictions, n_bins=10):
         n_bins (int): Number of bins for calibration.
     """
 
-    if predictions.ndim == 1:
+    if predictions.ndim == 1 or predictions.shape[1] == 1:
         # Binary case
         plt.figure(figsize=(10, 8))
         plt.plot([0, 1], [0, 1], 'k--', label='Perfectly Calibrated')
@@ -1064,11 +1083,14 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
 
             # Compute model predictions
             images = images.to(device)
-            preds = model(images).cpu().numpy()
-            if preds.ndim == 1:
+            if len(np.unique(labels)) == 2:  # Binary classification
+                preds = F.sigmoid(model(images)).cpu().numpy()  # Apply sigmoid for binary classification
+            else:
+                preds = model(images).cpu().numpy()
+            if preds.shape[1] == 1:
                 predicted_classes = (preds > 0.5).astype(int)  # Convert to binary classification
                 # Track success (1) / failure (0)
-                success_flags.extend((predicted_classes.flatten() == labels).astype(int))
+                success_flags.extend((predicted_classes == labels).astype(int))
             else:
                 predicted_classes = np.argmax(np.array(F.softmax(torch.tensor(preds), dim=1)), axis=1)
                 # Track success (1) / failure (0)
@@ -1426,35 +1448,48 @@ def analyze_hyperplane_distance(train_latent, train_labels, eval_latent, eval_su
     
     return eval_distances
 
-def compute_mean_shap_values(shap_values, fold, nb_features=50):
-    
+def compute_mean_shap_values(shap_values, fold, true_labels=None, nb_features=50):
     mean_shap_fold = []
     print(f"SHAP Feature Importances Computation")
 
-    # Ensure shap_values is a 3D array
-    num_samples, num_features, num_classes = shap_values.shape
+    # Ensure shap_values is a 2D array for binary classification
+    if shap_values.ndim == 3 and true_labels is not None and len(np.unique(true_labels)) == 2:
+        shap_values = shap_values.squeeze(-1)  # Remove the last dimension to make it 2D
+
+    # Ensure shap_values is a 3D array for multiclass or 2D for binary classification
+    if shap_values.ndim == 3:
+        num_samples, num_features, num_classes = shap_values.shape
+    elif shap_values.ndim == 2:
+        num_samples, num_features = shap_values.shape
+        num_classes = 2  # Binary classification treated as two classes (0 and 1)
+    else:
+        raise ValueError("Unexpected shape of shap_values. Expected 2D or 3D array.")
 
     for class_idx in range(num_classes):
         print(f"Class {class_idx}: SHAP Feature Importances")
 
-        # Extract SHAP values for the current class
-        class_shap_values = shap_values[:, :, class_idx]
+        if shap_values.ndim == 3:  # Multiclass classification
+            # Extract SHAP values for the current class
+            class_shap_values = shap_values[:, :, class_idx]
+        else:  # Binary classification
+            # Isolate cases with true label matching the current class
+            class_shap_values = shap_values[true_labels == class_idx, :]
 
         # Create a DataFrame for SHAP values of the current class
         shap_df = pd.DataFrame(
             class_shap_values,
             columns=[f"Feature_{i}" for i in range(num_features)]
         )
-        
+
         # Compute mean absolute SHAP values
         mean_abs_shap = shap_df.abs().mean(axis=0)
-        
+
         # Select top 50 features
         top_n_features = mean_abs_shap.nlargest(nb_features).index
-        
+
         # Keep only the top 50 features
         shap_df_top_n = shap_df[top_n_features]
-        
+
         shap_importance = display_shap_values(shap_df_top_n)
         print(shap_importance)
         mean_shap_fold.append((fold, class_idx, shap_importance))
@@ -1520,6 +1555,9 @@ def compute_knn_distances_to_train_data(model, train_loader, test_loader, layer,
         average_distances = distances.mean(axis=1)
         
         knn_distances_all[indices_test_filtered] = average_distances
-        successes_all[indices_test_filtered] = success_test_filtered
+        if num_classes == 2:
+            successes_all[indices_test_filtered] = success_test_filtered.squeeze(-1)
+        else:
+            successes_all[indices_test_filtered] = success_test_filtered
 
     return knn_distances_all, successes_all
