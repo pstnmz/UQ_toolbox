@@ -312,7 +312,7 @@ def compute_stds(averaged_predictions):
     Returns:
         list: List of standard deviations for each sample.
     """
-    if averaged_predictions.ndim == 2:
+    if averaged_predictions.ndim == 2 or averaged_predictions.shape[2] == 1:
         stds = torch.std(averaged_predictions, dim=1).squeeze().tolist()  # Binary classification: shape (num_models, num_samples)
     elif averaged_predictions.ndim == 3:
         stds_per_class = torch.std(averaged_predictions, dim=1).squeeze()  # Multiclass classification: shape (num_models, num_samples, num_classes)
