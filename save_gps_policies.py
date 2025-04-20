@@ -83,10 +83,17 @@ transform = transforms.Compose([
         transforms.Normalize(mean=[.5], std=[.5]),
         transforms.Lambda(lambda x: x.repeat(3, 1, 1))
     ])
+
+transform_for_tta = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+    ])
 models = load_models(flag)
 train_dataset, calibration_dataset, test_dataset, task_type = load_datasets(flag, transform)
+_, calibration_dataset_for_tta, _, _ = load_datasets(flag, transform_for_tta)
 test_loader=DataLoader(test_dataset, batch_size=32, shuffle=False)
-calibration_loader=DataLoader(calibration_dataset, batch_size=32, shuffle=False)
+calibration_loader_for_tta=DataLoader(calibration_dataset_for_tta, batch_size=32, shuffle=False)
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  
 
-uq.apply_randaugment_and_store_results(test_loader, models, 2, 45, 500, device, folder_name=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment_breastmnist', batch_norm=True, image_size=28, nb_channels=3, softmax_application=True)
+uq.apply_randaugment_and_store_results(calibration_loader_for_tta, models, 2, 45, 500, device, folder_name=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment_breastmnist', image_normalization=True, mean=[.5], std=[.5], image_size=28, nb_channels=3, output_activation='sigmoid')

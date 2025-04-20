@@ -32,7 +32,7 @@ class AddBatchDimension:
         raise TypeError("Input should be a torch Tensor")
 
 
-def get_prediction(model, image, device, softmax_application=False):
+def get_prediction(model, image, device):
     """
     Generates a prediction from a given model and image.
 
@@ -50,8 +50,7 @@ def get_prediction(model, image, device, softmax_application=False):
     model.eval()  # Ensure the model is in evaluation mode
     with torch.no_grad():  # Disable gradient computation
         prediction = model(image).detach().cpu()
-    if softmax_application:
-        prediction = F.softmax(prediction, dim=1)
+
     return prediction
 
 
@@ -89,7 +88,7 @@ def extract_gps_augmentations_info(policies):
     return N, M, formatted_policies
 
 
-def TTA(transformations, models, data_loader, device, nb_augmentations=10, usingBetterRandAugment=False, n=2, m=45, batch_norm=False, nb_channels=1, mean=None, std=None, image_size=51, softmax_application=False):
+def TTA(transformations, models, data_loader, device, nb_augmentations=10, usingBetterRandAugment=False, n=2, m=45, image_normalization=False, nb_channels=1, mean=None, std=None, image_size=51, output_activation=None):
     """
     Perform Test-Time Augmentation (TTA) on a batch of images using specified transformations and models.
 
@@ -129,11 +128,11 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
         
         all_images = torch.cat(all_images, dim=0)  # Concatenate all batch images into one tensor
         if usingBetterRandAugment:
-            augmented_inputs, _ = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, batch_norm, nb_channels, mean, std, image_size, transformations)
+            augmented_inputs, _ = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations)
         else:
-            augmented_inputs = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, batch_norm, nb_channels, mean, std, image_size, transformations)
-        batch_predictions = [get_batch_predictions(models, augmented_input, device, softmax_application) for augmented_input in augmented_inputs]
-        averaged_predictions = [average_predictions(pred, all_images.size(0), nb_augmentations) for pred in batch_predictions]
+            augmented_inputs = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations)
+        batch_predictions = [get_batch_predictions(models, augmented_input, device) for augmented_input in augmented_inputs]
+        averaged_predictions = [average_predictions(pred, output_activation) for pred in batch_predictions]
 
         averaged_predictions = torch.stack(averaged_predictions, dim=0).permute(1, 0, 2)  # Shape: [batch_size, nb_augmentations, num_classes]
         #averaged_predictions = averaged_predictions.view(all_images.size(0), nb_augmentations, -1)  # Shape: [batch_size, nb_augmentations, num_classes]
@@ -143,7 +142,7 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
     return stds, averaged_predictions
 
 
-def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies, device, folder_name='savedpolicies', batch_norm=False, mean=False, std=False, nb_channels=1, image_size=51, softmax_application=False):
+def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies, device, folder_name='savedpolicies', image_normalization=False, mean=False, std=False, nb_channels=1, image_size=51, output_activation=None):
     """
     Apply RandAugment transformations to the data and store the results.
     Parameters:
@@ -178,9 +177,9 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
     all_images = torch.cat(all_images, dim=0)  # Concatenate all batch images into one tensor
         
     # Apply the policy and get the predictions
-    augment_transform, transformations = apply_augmentations(all_images, num_policies, usingBetterRandAugment=True, n=N, m=M, batch_norm=batch_norm, nb_channels=nb_channels, mean=mean, std=std, image_size=image_size, transformations=False)
-    predictions = [get_batch_predictions(models, transf, device, softmax_application) for transf in augment_transform]
-    averaged_predictions = [average_predictions(pred, all_images.size(0), nb_augmentations=len(transformations)) for pred in predictions]
+    augment_transform, transformations = apply_augmentations(all_images, num_policies, usingBetterRandAugment=True, n=N, m=M, image_normalization=image_normalization, nb_channels=nb_channels, mean=mean, std=std, image_size=image_size, transformations=False)
+    predictions = [get_batch_predictions(models, transf, device) for transf in augment_transform]
+    averaged_predictions = [average_predictions(pred, output_activation=output_activation) for pred in predictions]
             
     # Store the results in the dictionary with a unique key for each random policy
     policy_keys = [str(transformations[i].transforms[2].get_transform()) if nb_channels == 1 else str(transformations[i].transforms[1].get_transform()) for i in range(num_policies)]
@@ -196,7 +195,7 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
     return results_dict, dict_name
 
 
-def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, batch_norm, nb_channels, mean, std, image_size, transformations=False):
+def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations=False):
     """
     Apply augmentations to the images.
 
@@ -231,7 +230,7 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
                     *([to_1_channel] if nb_channels == 1 else []),  # Conditionally add to_1_channel
                     transforms.PILToTensor(),
                     transforms.Lambda(lambda x: x.float()) if nb_channels == 1 else transforms.ConvertImageDtype(torch.float),
-                    *([transforms.Normalize(mean=mean, std=std)] if not batch_norm else [])
+                    *([transforms.Normalize(mean=mean, std=std)] if image_normalization else [])
                 ]) for rand_aug in rand_aug_policies]
         
         for i, augmentation in enumerate(augmentations):
@@ -251,7 +250,7 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
         return augmented_inputs
 
 
-def get_batch_predictions(models, augmented_inputs, device, softmax_application):
+def get_batch_predictions(models, augmented_inputs, device):
     """
     Get predictions for the augmented inputs.
 
@@ -267,37 +266,36 @@ def get_batch_predictions(models, augmented_inputs, device, softmax_application)
     if isinstance(models, list):
         batch_predictions = []
         for model in models:
-            prediction = get_prediction(model, augmented_inputs, device, softmax_application)
+            prediction = get_prediction(model, augmented_inputs, device)
             batch_predictions.append(prediction)
     else:
-        prediction = get_prediction(models, augmented_inputs, device, softmax_application)
+        prediction = get_prediction(models, augmented_inputs, device)
         batch_predictions = [prediction]
     
     batch_predictions = torch.stack(batch_predictions, dim=0)  # Shape: [num_models, batch_size * num_augmentations, num_classes]
     return batch_predictions
 
 
-def average_predictions(batch_predictions, batch_size=False, nb_augmentations=False, reshape_for_GPS=False):
+def average_predictions(batch_predictions, output_activation=None):
     """
     Average predictions across models and group augmentations back with their respective images.
 
     Args:
-        batch_predictions (torch.Tensor): Batch predictions.
-        batch_size (int): Size of the batch.
-        nb_augmentations (int): Number of augmentations to apply per image.
-        usingBetterRandAugment (bool): If True, use BetterRandAugment with provided policies.
-        transformations (callable or list): Transformations to apply to each image.
-        reshape_for_GPS (bool): If True, reshape averaged predictions to [num_augmentations, batch_size, num_classes].
+        batch_predictions (torch.Tensor): Batch predictions. Shape: [num_models, batch_size * num_augmentations, num_classes].
+        output_activation (str, optional): Activation function to apply to the predictions. 
+                                           Options: 'softmax', 'sigmoid', or None. Defaults to None.
 
     Returns:
-        torch.Tensor: Averaged predictions.
+        torch.Tensor: Averaged predictions. Shape: [batch_size * num_augmentations, num_classes].
     """
+    # Average predictions across models
     averaged_predictions = torch.mean(batch_predictions, dim=0)  # Shape: [batch_size * num_augmentations, num_classes]
-    #if reshape_for_GPS:
-     #   averaged_predictions = averaged_predictions.view(nb_augmentations, batch_size, -1)  # Shape: [num_augmentations, batch_size, num_classes]
-    #else:
-     #   if nb_augmentations is not False:
-      #      averaged_predictions = averaged_predictions.view(batch_size, nb_augmentations, -1)  # Shape: [batch_size, num_augmentations, num_classes]
+
+    # Apply the specified activation function
+    if output_activation == 'softmax':
+        averaged_predictions = torch.nn.functional.softmax(averaged_predictions, dim=-1)
+    elif output_activation == 'sigmoid':
+        averaged_predictions = torch.sigmoid(averaged_predictions)
 
     return averaged_predictions
 
@@ -904,7 +902,7 @@ def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, 
             bad_idx,
             all_keys,
             search_set_len=search_set_len,
-            select_only=max_iterations,  # Size of the dataset to be used for searching
+            select_only=max_iterations, 
             num_workers=num_workers,  # Number of workers for parallel processing
             num_searches=num_searches,  # Number of parallel greedy search processes
             top_k=top_k,
