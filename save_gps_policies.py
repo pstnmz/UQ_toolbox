@@ -90,7 +90,7 @@ transform_for_tta = transforms.Compose([
     ])
 models = load_models(flag)
 train_dataset, calibration_dataset, test_dataset, task_type = load_datasets(flag, transform)
-test_dataset_for_tta, calibration_dataset_for_tta, _, _ = load_datasets(flag, transform_for_tta)
+_, calibration_dataset_for_tta, test_dataset_for_tta, _ = load_datasets(flag, transform_for_tta)
 test_loader=DataLoader(test_dataset, batch_size=32, shuffle=False)
 calibration_loader_for_tta=DataLoader(calibration_dataset_for_tta, batch_size=32, shuffle=False)
 test_loader_for_tta=DataLoader(test_dataset_for_tta, batch_size=32, shuffle=False)
