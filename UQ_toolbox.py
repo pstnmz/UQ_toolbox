@@ -597,7 +597,7 @@ def roc_curve_UQ_methods_plot(method_names, fprs, tprs, auc_scores):
     plt.legend(loc="lower right")
     plt.show()
 
-def standardize_and_mean_ensembling(distributions):
+def standardize_and_ensemble(distributions, metric):
     """
     Standardizes any number of distributions using a global mean and standard deviation.
     Returns a single column array with the mean value for each instance across the standardized distributions.
@@ -617,11 +617,17 @@ def standardize_and_mean_ensembling(distributions):
     
     # Apply z-score standardization to each distribution (column)
     standardized_distributions = (distributions - global_mean) / global_std_dev
+    if metric == 'mean':
+        # Compute the mean standardized value for each instance (row)
+        ensembled_values = np.mean(standardized_distributions, axis=1)
+    elif metric == 'max':
+        # Compute the mean standardized value for each instance (row)
+        ensembled_values = np.max(standardized_distributions, axis=1)
+    elif metric == 'min':
+        # Compute the mean standardized value for each instance (row)
+        ensembled_values = np.min(standardized_distributions, axis=1)
     
-    # Compute the mean standardized value for each instance (row)
-    mean_values = np.mean(standardized_distributions, axis=1)
-    
-    return mean_values
+    return ensembled_values
     
 def to_3_channels(img):
     if img.mode == 'L':  # Grayscale image
@@ -1353,7 +1359,7 @@ def visualize_umap_with_labels(umap_train, umap_test, success, labels, fold=0):
     plt.scatter(
         umap_train[round_indices, 0],
         umap_train[round_indices, 1],
-        label="Round (Train)",
+        label="Malignant (Train)",
         alpha=0.4,
         color="blue",
         marker="o",
@@ -1364,7 +1370,7 @@ def visualize_umap_with_labels(umap_train, umap_test, success, labels, fold=0):
     plt.scatter(
         umap_train[irregular_indices, 0],
         umap_train[irregular_indices, 1],
-        label="Irregular (Train)",
+        label="Benign/normal (Train)",
         alpha=0.4,
         color="black",
         marker="*",
