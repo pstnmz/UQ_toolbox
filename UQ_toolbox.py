@@ -128,14 +128,28 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
         
         all_images = torch.cat(all_images, dim=0)  # Concatenate all batch images into one tensor
         if usingBetterRandAugment:
-            augmented_inputs, _ = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations)
+            if isinstance(transformations, list) and all(isinstance(t, list) for t in transformations):
+                augmentations = []
+                for transformation in transformations:
+                    augmented_inputs, _ = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformation)
+                    augmentations.append(augmented_inputs)
+            else:
+                augmented_inputs, _ = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations)
         else:
             augmented_inputs = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations)
-        batch_predictions = [get_batch_predictions(models, augmented_input, device) for augmented_input in augmented_inputs]
-        averaged_predictions = [average_predictions(pred, output_activation) for pred in batch_predictions]
+        
+        if isinstance(transformations, list) and all(isinstance(t, list) for t in transformations):
+            predictions_policies = []
+            for augmented_inputs in augmentations:
+                batch_predictions = [get_batch_predictions(models, augmented_input, device) for augmented_input in augmented_inputs]
+                averaged_predictions = [average_predictions(pred, output_activation) for pred in batch_predictions]
+                predictions_policies.append(averaged_predictions)
+            averaged_predictions = torch.mean(torch.stack(predictions_policies, dim=0), dim=0)  # Shape: [batch_size * num_augmentations, num_classes]
+        else:
+            batch_predictions = [get_batch_predictions(models, augmented_input, device) for augmented_input in augmented_inputs]
+            averaged_predictions = [average_predictions(pred, output_activation) for pred in batch_predictions]
 
-        averaged_predictions = torch.stack(averaged_predictions, dim=0).permute(1, 0, 2)  # Shape: [batch_size, nb_augmentations, num_classes]
-        #averaged_predictions = averaged_predictions.view(all_images.size(0), nb_augmentations, -1)  # Shape: [batch_size, nb_augmentations, num_classes]
+            averaged_predictions = torch.stack(averaged_predictions, dim=0).permute(1, 0, 2)  # Shape: [batch_size, nb_augmentations, num_classes]
         
         stds = compute_stds(averaged_predictions)
     
@@ -638,114 +652,6 @@ def to_1_channel(img):
     img = img.convert('L')  # Convert back to grayscale
     return img
 
-def group_and_merge_similar_augmentations(policies, keys):
-    """
-    Group similar augmentations based on type and magnitude closeness,
-    and merge them by averaging the magnitudes.
-
-    Parameters:
-    - policies: List of tuples [(type, magnitude), ...] representing augmentations.
-    - tolerance: Fraction of the max magnitude to define closeness in magnitudes.
-
-    Returns:
-    - merged_augmentations: List of tuples [(type, avg_magnitude), ...] with merged augmentations.
-    """
-    
-    similar_augmentations = [keys[i] for i in policies]
-    # Step 1: Clean and parse the data
-    cleaned_data = [re.sub(r'N2_M45_|\.npz', '', item) for item in similar_augmentations]
-    parsed_data = [eval(item) for item in cleaned_data]
-
-    # Step 2: Normalize the lists (sort tuples within the list)
-    normalized_data = [tuple(sorted(augmentation)) for augmentation in parsed_data]
-    
-    # Step 3: Remove exact duplicates in the dataset
-    unique_data = list(set(normalized_data))
-
-    # Step 3: Define a similarity function
-    def are_similar(list1, list2, tolerance=25.0):
-        """
-        Check if two lists are similar based on augmentation type and magnitude tolerance.
-        """
-        if len(list1) != len(list2):
-            return False
-        
-        for (type1, mag1), (type2, mag2) in zip(list1, list2):
-            if type1 != type2 or abs(mag1 - mag2) > tolerance:
-                return False
-        return True
-
-    # Step 5: Group similar lists
-    groups = []
-    visited = [False] * len(unique_data)
-
-    for i, aug1 in enumerate(unique_data):
-        if visited[i]:
-            continue
-        
-        group = [aug1]
-        visited[i] = True
-        
-        for j, aug2 in enumerate(unique_data):
-            if not visited[j] and are_similar(aug1, aug2):
-                group.append(aug2)
-                visited[j] = True
-        
-        groups.append(group)
-
-    # Step 6: Keep groups with multiple augmentations and average magnitudes
-    result = []
-
-    for group in groups:
-        if len(group) > 1:  # Keep only groups with multiple augmentations
-            # Combine all augmentations in the group
-            combined = defaultdict(list)
-            for aug_list in group:
-                for i, (aug_type, magnitude) in enumerate(aug_list):
-                    combined[(aug_type, i)].append(magnitude)
-            
-            # Calculate average magnitude for each augmentation type/position pair
-            averaged_group = [
-                (aug_type, sum(magnitudes) / len(magnitudes)) for (aug_type, _), magnitudes in combined.items()
-            ]
-            
-            # Format as strings and append to result
-            result.append(
-                "[" + ", ".join(f"({t}, {m})" for t, m in sorted(averaged_group, key=lambda x: x[0])) + "]"
-            )
-
-    return result
-
-def prioritize_and_merge_with_similarity(results, keys, top_k=5):
-    """
-    Prioritize augmentations from top-performing searches considering similarity,
-    and merge close augmentations by averaging magnitudes.
-
-    Parameters:
-    - results: List of tuples (best_metric, best_group_indices, all_roc_aucs) from parallel searches.
-    - top_k: Number of top-performing searches to consider.
-    - threshold: Minimum number of top searches in which an augmentation must appear to be retained.
-    - tolerance: Fraction of the max magnitude to define closeness in magnitudes.
-
-    Returns:
-    - prioritized_augmentations: List of merged augmentations [(type, avg_magnitude), ...].
-    """
-    # Sort results by the best_metric (ROC AUC) in descending order
-    sorted_results = sorted(results, key=lambda x: x[0], reverse=True)
-
-    # Select the top `k` performing searches
-    top_results = sorted_results[:top_k]
-    print(top_results)
-    # Extract augmentations from the top searches
-    all_policies = []
-    for _, group_indices, _ in top_results:
-        all_policies.extend(group_indices)
-
-    # Group and merge similar augmentations
-    merged_augmentations = group_and_merge_similar_augmentations(all_policies, keys)
-
-    return merged_augmentations
-
 
 def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, min_improvement=0.005, patience=5):
     """
@@ -830,18 +736,20 @@ def plot_auc_curves(results):
     plt.grid(True)
     plt.show()
     
-def select_greedily_on_ens(all_preds, good_idx, bad_idx, keys, search_set_len, select_only=50, num_workers=1, num_searches=10, top_k=5, method='top_policies'):
-
+def select_greedily_on_ens(
+    all_preds, good_idx, bad_idx, keys, search_set_len, select_only=50,
+    num_workers=1, num_searches=10, top_k=5, method='top_policies'
+):
     val_preds = np.copy(all_preds[:, :search_set_len, :])
-    # Initialize a multiprocessing pool for parallel execution
-    
     with mp.Pool(processes=num_workers) as pool:
-        # Initialize random starting augmentations for each search
         initial_augmentations = [
             np.random.choice(range(val_preds.shape[0])) for _ in range(num_searches)
         ]
         try:
-            results = pool.starmap(greedy_search, [(initial_aug, val_preds, good_idx, bad_idx, select_only) for initial_aug in initial_augmentations])
+            results = pool.starmap(
+                greedy_search,
+                [(initial_aug, val_preds, good_idx, bad_idx, select_only) for initial_aug in initial_augmentations]
+            )
         except IndexError as e:
             print("Debugging IndexError...")
             print(f"val_preds shape: {val_preds.shape}")
@@ -853,14 +761,20 @@ def select_greedily_on_ens(all_preds, good_idx, bad_idx, keys, search_set_len, s
             pool.join()
 
     # Select the best result based on the ROC AUC metric
-    best_result = max(results, key=lambda x: x[0])  # Select based on the best metric (ROC AUC)
+    best_result = max(results, key=lambda x: x[0])
     best_metric, best_group_indices, _ = best_result
 
     print("\nParallel greedy search complete. Best metric:", best_metric)
-    
-    if method == 'mutualized_policies':
-        # Prioritize policies from top-performing searches
-        policies = prioritize_and_merge_with_similarity(results, keys, top_k=top_k)
+
+    if method == 'top_k_policies':
+        # Get the top_k results by ROC AUC
+        sorted_results = sorted(results, key=lambda x: x[0], reverse=True)
+        print(results)
+        top_k_group_indices = []
+        for i in range(top_k):
+            top_k_group_indices.append(sorted_results[i][1])
+        
+        policies = top_k_group_indices
     else:
         policies = np.array(best_group_indices)
 
@@ -889,55 +803,30 @@ def load_npz_files_for_greedy_search(npz_dir):
     all_preds = np.array(all_preds)  # Shape: [num_policies, num_samples, num_classes]
     return all_preds, all_keys
 
-def perform_greedy_policy_search(npz_dir, good_idx, bad_idx, max_iterations=50, num_workers=1, num_searches=10, top_k=5, plot=True, method='top_policies'):
-    """
-    Perform parallel greedy policy search using the select_greedily_on_ens function.
-    Loads .npz files, aggregates predictions, and performs policy search.
-    """
-
+def perform_greedy_policy_search(
+    npz_dir, good_idx, bad_idx, max_iterations=50, num_workers=1, num_searches=10, top_k=5, plot=True, method='top_k_policies'
+):
     print('Loading predictions...')
-    # Step 1: Load the .npz files containing predictions
     all_preds, all_keys = load_npz_files_for_greedy_search(npz_dir)
     search_set_len = all_preds[0].size
-    
-    if method == 'top_policies':
-        # Step 3: Call the `select_greedily_on_ens` function with loaded predictions
-        selected_policies, results = select_greedily_on_ens(
-            all_preds,  # Predictions from npz files
-            good_idx,
-            bad_idx,
-            all_keys,
-            search_set_len=search_set_len,
-            select_only=max_iterations, 
-            num_workers=num_workers,  # Number of workers for parallel processing
-            num_searches=num_searches,  # Number of parallel greedy search processes
-            top_k=top_k,
-            method=method
-        )
-        # Return the selected policies and their corresponding names
+
+    selected_policies, results = select_greedily_on_ens(
+        all_preds, good_idx, bad_idx, all_keys,
+        search_set_len=search_set_len,
+        select_only=max_iterations,
+        num_workers=num_workers,
+        num_searches=num_searches,
+        top_k=top_k,
+        method=method
+    )
+    if isinstance(selected_policies, list) and all(isinstance(policy, list) for policy in selected_policies):
+        selected_policy_names = [[all_keys[i] for i in selected_policy] for selected_policy in selected_policies]
+    else:
         selected_policy_names = [all_keys[i] for i in selected_policies]
-        
-    elif method == 'mutualized_policies':
-                # Step 3: Call the `select_greedily_on_ens` function with loaded predictions
-        selected_policies, results= select_greedily_on_ens(
-            all_preds,  # Predictions from npz files
-            good_idx,
-            bad_idx,
-            all_keys,
-            search_set_len=search_set_len,
-            select_only=max_iterations,  # Size of the dataset to be used for searching
-            num_workers=num_workers,  # Number of workers for parallel processing
-            num_searches=num_searches,  # Number of parallel greedy search processes
-            top_k=top_k,
-            method=method
-        )
-        selected_policy_names = selected_policies
+
     if plot:
-        # Plot the ROC AUC curves for each greedy search
         plot_auc_curves(results)
 
-    
-    
     return selected_policy_names
 
 
