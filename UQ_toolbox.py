@@ -139,19 +139,22 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
             augmented_inputs = apply_augmentations(all_images, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations)
         
         if isinstance(transformations, list) and all(isinstance(t, list) for t in transformations):
-            predictions_policies = []
+            
+            stds_policies = []
             for augmented_inputs in augmentations:
                 batch_predictions = [get_batch_predictions(models, augmented_input, device) for augmented_input in augmented_inputs]
                 averaged_predictions = [average_predictions(pred, output_activation) for pred in batch_predictions]
-                predictions_policies.append(averaged_predictions)
-            averaged_predictions = torch.mean(torch.stack(predictions_policies, dim=0), dim=0)  # Shape: [batch_size * num_augmentations, num_classes]
+                averaged_predictions = torch.stack(averaged_predictions, dim=0).permute(1, 0, 2)  # Shape: [batch_size, nb_augmentations, num_classes]
+                stds = compute_stds(averaged_predictions)
+                stds_policies.append(stds)
+            stds = np.mean(stds_policies, axis=0)
         else:
             batch_predictions = [get_batch_predictions(models, augmented_input, device) for augmented_input in augmented_inputs]
             averaged_predictions = [average_predictions(pred, output_activation) for pred in batch_predictions]
 
             averaged_predictions = torch.stack(averaged_predictions, dim=0).permute(1, 0, 2)  # Shape: [batch_size, nb_augmentations, num_classes]
         
-        stds = compute_stds(averaged_predictions)
+            stds = compute_stds(averaged_predictions)
     
     return stds, averaged_predictions
 

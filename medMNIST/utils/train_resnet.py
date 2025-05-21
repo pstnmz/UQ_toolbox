@@ -14,7 +14,7 @@ from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import random
 
-def get_data_loaders(data_flag, batch_size=32, download=True, return_datasets=False, random_seed=None):
+def get_data_loaders(data_flag, batch_size=32, download=True, return_datasets=False, random_seed=None, im_size=28):
     if random_seed is not None:
         torch.manual_seed(random_seed)
         np.random.seed(random_seed)
@@ -34,9 +34,9 @@ def get_data_loaders(data_flag, batch_size=32, download=True, return_datasets=Fa
     ])
 
     
-    train_dataset = DataClass(split='train', transform=transform, download=download)
-    val_dataset = DataClass(split='val', transform=transform, download=download)
-    test_dataset = DataClass(split='test', transform=transform, download=download)
+    train_dataset = DataClass(split='train', transform=transform, size=im_size, download=download)
+    val_dataset = DataClass(split='val', transform=transform, size=im_size, download=download)
+    test_dataset = DataClass(split='test', transform=transform, size=im_size, download=download)
 
     train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=False)
