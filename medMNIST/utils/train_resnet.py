@@ -95,14 +95,14 @@ def validate(model, device, val_loader, criterion):
     return val_loss
 
 
-def train_resnet18(data_flag, num_epochs=10, batch_size=32, learning_rate=0.001, device=None, train_loader=None, val_loader=None, random_seed=None):
+def train_resnet18(data_flag, num_epochs=10, batch_size=32, learning_rate=0.001, device=None, train_loader=None, val_loader=None, test_loader=None, random_seed=None):
     device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
     dataloaders, info = get_data_loaders(data_flag, batch_size, random_seed=random_seed)
-    if train_loader is None or val_loader is None:
-        train_loader, val_loader = dataloaders[0], dataloaders[1]
+    if train_loader is None or val_loader is None or test_loader is None:
+        train_loader, val_loader, test_loader = dataloaders[0], dataloaders[1], dataloaders[2]
 
     num_classes = len(info['label'])
-    model = models.resnet18(weights=ResNet18_Weights.DEFAULT )
+    model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
     # Modify the final fully connected layer to handle both binary and multiclass classification
     if num_classes == 2:
         model.fc = nn.Linear(model.fc.in_features, 1)  # Output 1 value for binary classification
@@ -135,7 +135,7 @@ def train_resnet18(data_flag, num_epochs=10, batch_size=32, learning_rate=0.001,
     plt.legend()
     plt.show()
 
-    evaluate_model(model, dataloaders[2], data_flag, device)
+    evaluate_model(model, test_loader, data_flag, device)
     return model
 
 def evaluate_model(model, test_loader, data_flag, device=None):
