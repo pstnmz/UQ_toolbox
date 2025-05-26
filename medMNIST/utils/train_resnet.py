@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 from torchvision import models, transforms
-from torch.nn.functional import sigmoid
+from torch.nn.functional import sigmoid, softmax
 import medmnist
 from medmnist import INFO
 import matplotlib.pyplot as plt
@@ -164,10 +164,12 @@ def evaluate_model(model, test_loader, data_flag, device=None):
             
             if len(np.unique(target.cpu().numpy())) == 2:  # Binary classification
                 output = sigmoid(output)  # Apply sigmoid for binary classification
-
+                y_score.extend(output.cpu().numpy().flatten())
+            else:
+                output = softmax(output, dim=1)
+                y_score.extend(output.cpu().numpy())
             y_true.extend(target.cpu().numpy().flatten())
-            y_score.extend(output.cpu().numpy().flatten())
-
+            
     y_true = np.array(y_true)
     y_score = np.array(y_score)
 
