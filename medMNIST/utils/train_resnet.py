@@ -14,7 +14,7 @@ from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import random
 
-def get_data_loaders(data_flag, batch_size=32, download=True, return_datasets=False, random_seed=None, im_size=28):
+def get_data_loaders(data_flag, batch_size=32, download=True, return_datasets=False, random_seed=None, im_size=28, color=False):
     if random_seed is not None:
         torch.manual_seed(random_seed)
         np.random.seed(random_seed)
@@ -26,12 +26,19 @@ def get_data_loaders(data_flag, batch_size=32, download=True, return_datasets=Fa
 
     info = INFO[data_flag]
     DataClass = getattr(medmnist, info['python_class'])
-
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[.5], std=[.5]),
-        transforms.Lambda(lambda x: x.repeat(3, 1, 1))
-    ])
+    if color:
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[.5, .5, .5], std=[.5, .5, .5])
+        ])
+    else:
+        # For grayscale images, repeat the single channel to make it compatible with ResNet
+        # ResNet expects 3 channels, so we repeat the single channel image
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[.5], std=[.5]),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+        ])
 
     
     train_dataset = DataClass(split='train', transform=transform, size=im_size, download=download)
