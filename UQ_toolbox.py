@@ -8,13 +8,14 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import os
-import multiprocessing
+from concurrent.futures import ThreadPoolExecutor
 import torch
 import re
 from torchvision import transforms
 import torch.nn.functional as F
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from collections import defaultdict
 from gps_augment.utils.randaugment import BetterRandAugment
 import shap
@@ -46,7 +47,7 @@ def get_prediction(model, image, device):
         torch.Tensor: The prediction output from the model.
     """
     model.to(device)
-    image = image.to(device)
+    image = image.to(device, non_blocking=True)
     model.eval()  # Ensure the model is in evaluation mode
     with torch.no_grad():  # Disable gradient computation
         prediction = model(image).detach().cpu()
@@ -158,8 +159,10 @@ def TTA(transformations, models, data_loader, device, nb_augmentations=10, using
     
     return stds, averaged_predictions
 
+def apply_augmentation_to_image(img, augmentation):
+    return augmentation(img)
 
-def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies, device, folder_name='savedpolicies', image_normalization=False, mean=False, std=False, nb_channels=1, image_size=51, output_activation=None):
+def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies, device, folder_name='savedpolicies', image_normalization=False, mean=False, std=False, nb_channels=1, image_size=51, output_activation=None, calibration_dataset=None, batch_size=None):
     """
     Apply RandAugment transformations to the data and store the results.
     Parameters:
@@ -194,25 +197,10 @@ def apply_randaugment_and_store_results(data_loader, models, N, M, num_policies,
     all_images = torch.cat(all_images, dim=0)  # Concatenate all batch images into one tensor
         
     # Apply the policy and get the predictions
-    augment_transform, transformations = apply_augmentations(all_images, num_policies, usingBetterRandAugment=True, n=N, m=M, image_normalization=image_normalization, nb_channels=nb_channels, mean=mean, std=std, image_size=image_size, transformations=False)
-    predictions = [get_batch_predictions(models, transf, device) for transf in augment_transform]
-    averaged_predictions = [average_predictions(pred, output_activation=output_activation) for pred in predictions]
-            
-    # Store the results in the dictionary with a unique key for each random policy
-    policy_keys = [str(transformations[i].transforms[2].get_transform()) if nb_channels == 1 else str(transformations[i].transforms[1].get_transform()) for i in range(num_policies)]
-    for i, policy_key in enumerate(policy_keys):
-        results_dict[policy_key] = averaged_predictions[i]
-    
-        # Saving results in a .npz file in the 'savedpolicies' folder
-        filename = f'{folder_name}/N{N}_M{M}_{policy_key}.npz'
-        np.savez_compressed(filename, predictions=averaged_predictions[i].numpy())
-
-    dict_name = f'results_randaugment_{num_policies}TTA_N{N}_M{M}'
-    
-    return results_dict, dict_name
+    apply_augmentations(all_images, num_policies, usingBetterRandAugment=True, n=N, m=M, image_normalization=image_normalization, nb_channels=nb_channels, mean=mean, std=std, image_size=image_size, transformations=False, save_policies=True, models=models, device=device, output_activation=output_activation, folder_name=folder_name, N=N, M=M, calibration_dataset=calibration_dataset, batch_size=batch_size)
 
 
-def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations=False):
+def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations=False, save_policies=False, models=None, device=None, output_activation=None, folder_name=None, N=None, M=None, calibration_dataset=None, batch_size=None):
     """
     Apply augmentations to the images.
 
@@ -241,6 +229,7 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
             rand_aug_policies = [BetterRandAugment(n, m, True, False, randomize_sign=False, image_size=image_size) for _ in range(nb_augmentations)] 
 
         augmentations = [transforms.Compose([
+                    transforms.ToTensor(),
                     transforms.ToPILImage(),
                     *([to_3_channels] if nb_channels == 1 else []),  # Conditionally add to_3_channels
                     rand_aug,
@@ -252,8 +241,36 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
         
         for i, augmentation in enumerate(augmentations):
             print(f"Applying augmentation n : {i}")
-            augmented_inputs.append(torch.stack([augmentation(image) for image in images]))
-        augmented_inputs = torch.stack(augmented_inputs, dim=0)  # Shape: [ num_augmentations, batch_size, C, H, W]
+            if save_policies:
+                all_preds = []
+                calibration_dataset.transform = augmentation
+                data_loader = DataLoader(dataset=calibration_dataset, batch_size=batch_size, shuffle=False, num_workers=72, pin_memory=True)
+
+                for batch in data_loader:
+                    augmented_images = batch[0]
+                   # with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+                    #    augmented_images = list(executor.map(lambda img: apply_augmentation_to_image(img, augmentation), images))
+
+                   # augmented_images = torch.stack(augmented_images)
+
+                    preds = get_batch_predictions(models, augmented_images, device)
+                    # Inside your loop
+                    all_preds.append(preds.permute(1, 0, 2))  # [batch_size, num_models, num_classes]
+
+                
+                predictions = torch.cat(all_preds, dim=0)  # [total_samples, num_models, num_classes]
+                    #   all_preds.append(preds.cpu())
+
+                #predictions = torch.cat(all_preds, dim=0)
+                averaged_predictions = average_predictions(predictions.permute(1, 0, 2), output_activation=output_activation)
+
+                policy_key = str(augmentation.transforms[3].get_transform()) if nb_channels == 1 else str(augmentation.transforms[2].get_transform())
+                filename = f'{folder_name}/N{N}_M{M}_{policy_key}.npz'
+                np.savez_compressed(filename, predictions=averaged_predictions.numpy())
+            else:
+                augmented_inputs.append(torch.stack([augmentation(image) for image in images]))
+        if save_policies is False:
+            augmented_inputs = torch.stack(augmented_inputs, dim=0)  # Shape: [ num_augmentations, batch_size, C, H, W]
 
     else:
         for i in range(nb_augmentations):
@@ -261,7 +278,7 @@ def apply_augmentations(images, nb_augmentations, usingBetterRandAugment, n, m, 
             augmented_inputs.append(torch.stack([transformations(image) for image in images]))
         augmented_inputs = torch.stack(augmented_inputs, dim=0)  # Shape: [batch_size, num_augmentations, C, H, W]
     
-    if usingBetterRandAugment:
+    if usingBetterRandAugment and save_policies is False:
         return augmented_inputs, augmentations
     else:
         return augmented_inputs

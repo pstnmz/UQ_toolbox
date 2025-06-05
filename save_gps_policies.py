@@ -2,6 +2,7 @@ import sys
 import os
 import medmnist
 from medmnist import INFO, Evaluator
+from medMNIST.utils import train_resnet as tr
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,7 +13,7 @@ import numpy as np
 from torchvision.models import resnet18, ResNet18_Weights
 import UQ_toolbox as uq
 
-def load_models(flag):
+def load_models(flag, size=224):
 
     # Load organAMNIST dataset
     data_flag = flag
@@ -30,7 +31,7 @@ def load_models(flag):
             model.fc = nn.Linear(model.fc.in_features, num_classes)  # Output logits for each class
         
         # Load the state dictionary
-        state_dict = torch.load(f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/resnet18_{flag}{i}.pt')
+        state_dict = torch.load(f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/models/{size}x{size}/resnet18_{flag}_{size}_{i}.pt')
 
         # Remove the 'model.' prefix from the state_dict keys if necessary
         state_dict = {k.replace('model.', ''): v for k, v in state_dict.items()}
@@ -42,23 +43,34 @@ def load_models(flag):
         models.append(model)
     return models
 
-def load_datasets(flag, transform):
-    transform=transform
+def load_datasets(dataflag, color, batch_size, im_size):
     
-    # Load organAMNIST dataset
-    data_flag = flag
-    download = True
-    info = INFO[data_flag]
-    task_type = info['task']  # Determine the task type (binary-class or multi-class)
-    DataClass = getattr(medmnist, info['python_class'])
-
-
-    test_dataset = DataClass(split='test', download=download, transform=transform)
-    train_dataset = DataClass(split='train', download=download, transform=transform)
-    val_dataset = DataClass(split='val', download=download, transform=transform)
-
+    if color:
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[.5, .5, .5], std=[.5, .5, .5])
+            ])
+            
+            transform_for_tta = transforms.Compose([
+                transforms.ToTensor()
+            ])
+    else:
+        # For grayscale images, repeat the single channel to make it compatible with ResNet
+        # ResNet expects 3 channels, so we repeat the single channel image
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[.5], std=[.5]),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+        ])
+        
+        transform_for_tta = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+            ])
+        
+    _, datasets, info = tr.get_data_loaders(dataflag, return_datasets=True, im_size=im_size, color=color, transform=transform_for_tta)
     # Combine train_dataset and val_dataset
-    combined_train_dataset = ConcatDataset([train_dataset, val_dataset])
+    combined_train_dataset = ConcatDataset([datasets[0], datasets[1]])
 
     # Set the random seed for reproducibility
     torch.manual_seed(42)
@@ -70,31 +82,22 @@ def load_datasets(flag, transform):
     # Split the combined_train_dataset into training and calibration datasets
     train_dataset, calibration_dataset = random_split(combined_train_dataset, [train_size, calibration_size])
 
+    # Create DataLoaders for the new training and calibration datasets
+    calibration_loader_for_tta = DataLoader(dataset=calibration_dataset, batch_size=batch_size, shuffle=False)
+
     print(f'Training dataset size: {len(train_dataset)}')
     print(f'Calibration dataset size: {len(calibration_dataset)}')
+    
+    return calibration_loader_for_tta, calibration_dataset
 
-    return train_dataset, calibration_dataset, test_dataset, task_type
+dataflag = 'octmnist'
+color = False # True for color, False for grayscale
+activation = 'softmax'
+batch_size = 4000
+im_size = 224
+models = load_models(dataflag)
+calibration_loader_for_tta, calibration_dataset=load_datasets(dataflag, color, batch_size, im_size)
 
+device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')  
 
-# Load organAMNIST dataset
-flag = 'breastmnist'
-transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[.5], std=[.5]),
-        transforms.Lambda(lambda x: x.repeat(3, 1, 1))
-    ])
-
-transform_for_tta = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.repeat(3, 1, 1))
-    ])
-models = load_models(flag)
-train_dataset, calibration_dataset, test_dataset, task_type = load_datasets(flag, transform)
-_, calibration_dataset_for_tta, test_dataset_for_tta, _ = load_datasets(flag, transform_for_tta)
-test_loader=DataLoader(test_dataset, batch_size=32, shuffle=False)
-calibration_loader_for_tta=DataLoader(calibration_dataset_for_tta, batch_size=32, shuffle=False)
-test_loader_for_tta=DataLoader(test_dataset_for_tta, batch_size=32, shuffle=False)
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  
-
-uq.apply_randaugment_and_store_results(test_loader_for_tta, models, 2, 45, 500, device, folder_name=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment_breastmnist_testset', image_normalization=True, mean=[.5], std=[.5], image_size=28, nb_channels=3, output_activation='sigmoid')
+uq.apply_randaugment_and_store_results(calibration_loader_for_tta, models, 2, 45, 500, device, folder_name=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment/{im_size}*{im_size}/{dataflag}_calibration_set', image_normalization=True, mean=[.5], std=[.5], image_size=im_size, nb_channels=3, output_activation=activation, calibration_dataset=calibration_dataset, batch_size=batch_size)

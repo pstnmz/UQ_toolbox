@@ -4,3 +4,4 @@
 **/gps_augment_breastmnist_testset/
 **/shap_results.pkl
 **/shap_results_calibration.pkl
+**/medMNIST/gps_augment/
