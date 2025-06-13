@@ -2,6 +2,8 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import models, transforms
 from torch.nn.functional import sigmoid, softmax
+from torch.utils.data import DataLoader, ConcatDataset, random_split
+from torchvision.models import resnet18, ResNet18_Weights
 import medmnist
 from medmnist import INFO
 import matplotlib.pyplot as plt
@@ -13,8 +15,10 @@ from sklearn.metrics import accuracy_score, balanced_accuracy_score, roc_auc_sco
 from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import random
+import numpy as np
 
-def get_data_loaders(data_flag, batch_size=32, download=True, return_datasets=False, random_seed=None, im_size=28, color=False, transform=None):
+
+def get_datasets(data_flag, download=True, random_seed=None, im_size=28, color=False, transform=None):
     if random_seed is not None:
         torch.manual_seed(random_seed)
         np.random.seed(random_seed)
@@ -46,14 +50,15 @@ def get_data_loaders(data_flag, batch_size=32, download=True, return_datasets=Fa
     val_dataset = DataClass(split='val', transform=transform, size=im_size, download=download)
     test_dataset = DataClass(split='test', transform=transform, size=im_size, download=download)
 
-    train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
+    return [train_dataset, val_dataset, test_dataset], info
 
-    if return_datasets:
-        return [train_loader, val_loader, test_loader], [train_dataset, val_dataset, test_dataset], info
-    else:
-        return [train_loader, val_loader, test_loader], info
+def get_dataloaders(datasets, batch_size=32, num_workers=20):
+    train_dataset, val_dataset, test_dataset = datasets
+    train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    return train_loader, val_loader, test_loader
 
 
 def train(model, device, train_loader, optimizer, criterion, epoch):
@@ -103,9 +108,9 @@ def validate(model, device, val_loader, criterion):
     return val_loss
 
 
-def train_resnet18(data_flag, num_epochs=10, batch_size=32, learning_rate=0.001, device=None, train_loader=None, val_loader=None, test_loader=None, random_seed=None):
+def train_resnet18(data_flag, num_epochs=10, batch_size=32, learning_rate=0.001, device=None, train_loader=None, val_loader=None, test_loader=None, color=False, im_size=224, transform=None):
     device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
-    dataloaders, info = get_data_loaders(data_flag, batch_size, random_seed=random_seed)
+    dataloaders, info = load_datasets(data_flag, color, im_size, transform, batch_size)
     if train_loader is None or val_loader is None or test_loader is None:
         train_loader, val_loader, test_loader = dataloaders[0], dataloaders[1], dataloaders[2]
 
@@ -217,3 +222,57 @@ def save_model(model, path):
     """
     torch.save(model.state_dict(), path)
     print(f"Model saved to {path}")
+
+
+def load_models(flag, device, size=224):
+
+    # Load organAMNIST dataset
+    data_flag = flag
+    info = INFO[data_flag]
+    num_classes = len(info['label'])
+    # Load saved models
+    models = []
+    for i in range(5):
+        # Initialize the model
+        model = resnet18(weights=ResNet18_Weights.DEFAULT)
+        if num_classes == 2:
+            model.fc = nn.Linear(model.fc.in_features, 1)  # Output 1 value for binary classification
+        else:
+            model.fc = nn.Linear(model.fc.in_features, num_classes)  # Output logits for each class
+        
+        # Load the state dictionary
+        state_dict = torch.load(f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/models/{size}x{size}/resnet18_{flag}_{size}_{i}.pt')
+
+        # Remove the 'model.' prefix from the state_dict keys if necessary
+        state_dict = {k.replace('model.', ''): v for k, v in state_dict.items()}
+
+        # Load the modified state dictionary into the model
+        model.load_state_dict(state_dict)
+        model = model.to(device)
+        model.eval()
+        models.append(model)
+    return models
+
+def load_datasets(dataflag, color, im_size, transform, batch_size):
+        
+    datasets, info = get_datasets(dataflag, im_size=im_size, color=color, transform=transform)
+    # Combine train_dataset and val_dataset
+    combined_train_dataset = ConcatDataset([datasets[0], datasets[1]])
+
+    # Set the random seed for reproducibility
+    torch.manual_seed(42)
+
+    # Calculate the sizes for training and calibration datasets
+    train_size = int(0.8 * len(combined_train_dataset))
+    calibration_size = len(combined_train_dataset) - train_size
+
+    # Split the combined_train_dataset into training and calibration datasets
+    train_dataset, calibration_dataset = random_split(combined_train_dataset, [train_size, calibration_size])
+    test_dataset = datasets[2]  # Use the test dataset as is
+
+    dataloaders = get_dataloaders([train_dataset, calibration_dataset, test_dataset], batch_size=batch_size)
+
+    print(f'Training dataset size: {len(train_dataset)}')
+    print(f'Calibration dataset size: {len(calibration_dataset)}')
+    
+    return [train_dataset, calibration_dataset, test_dataset], dataloaders, info

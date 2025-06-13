@@ -367,7 +367,7 @@ def distance_to_hard_labels_computation(predictions):
     Returns:
     - list: List of distances to the hard labels.
     """
-    if predictions.ndim == 1:
+    if predictions.ndim == 1 or predictions.shape[1] == 1:
         # Binary classification
         distances = 0.5 - np.abs(predictions - 0.5)
     else:
@@ -408,32 +408,47 @@ def plot_calibration_curve(y_true, y_prob):
     
     return prob_true, prob_pred
 
+def compute_class_weights(labels_np):
+    classes, counts = np.unique(labels_np, return_counts=True)
+    total = sum(counts)
+    weights = total / (len(classes) * counts)
+    return torch.tensor(weights, dtype=torch.float)
+
+
 class TemperatureScaler(nn.Module):
-    def __init__(self):
+    def __init__(self, init_temp=1.5):
         super().__init__()
-        self.temperature = nn.Parameter(torch.ones(1) * 1.5)
+        self.log_temperature = nn.Parameter(torch.log(torch.tensor([init_temp])))
 
     def forward(self, logits):
-        return logits / self.temperature
+        temperature = torch.exp(self.log_temperature)
+        temperature = torch.clamp(temperature, min=0.5, max=5.0)
+        return logits / temperature
 
 def fit_temperature_scaling(logits, labels, max_iter=1000):
     logits = torch.from_numpy(logits).float()
     if logits.ndim == 1:
-        logits = logits.unsqueeze(1)  # shape (N,) → (N, 1)
+       logits = logits.unsqueeze(1)
 
+    labels_np = labels.copy()
     labels = torch.from_numpy(labels).float()
+    model = TemperatureScaler()        # uses model.log_temperature internally
 
-    model = TemperatureScaler()
-    
-    # Choose the right loss based on binary vs multiclass
     if logits.shape[1] == 1:
-        criterion = nn.BCEWithLogitsLoss()
+        # Binary classification
+        class_weights = compute_class_weights(labels_np)
+        # BCEWithLogitsLoss expects weights for each sample, so map from label
+        sample_weights = torch.where(labels == 1, class_weights[1], class_weights[0])
+        criterion = nn.BCEWithLogitsLoss(weight=sample_weights)
     else:
-        labels = labels.long()  # CrossEntropy requires long labels
-        criterion = nn.CrossEntropyLoss()
+        labels = labels.long()
+        class_weights = compute_class_weights(labels_np)
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    optimizer = optim.LBFGS([model.temperature], lr=0.01, max_iter=max_iter)
-
+    # Optimize the log-temperature parameter
+    optimizer = optim.LBFGS([model.log_temperature], lr=0.001, max_iter=max_iter)
+    print(f"Initial log-temperature: {model.log_temperature.item():.4f}")
+    print(f"Initial temperature: {torch.exp(model.log_temperature).item():.4f}")
     def closure():
         optimizer.zero_grad()
         loss = criterion(model(logits).squeeze(), labels)
@@ -441,6 +456,8 @@ def fit_temperature_scaling(logits, labels, max_iter=1000):
         return loss
 
     optimizer.step(closure)
+    print(f"Optimized log-temperature: {model.log_temperature.item():.4f}")
+    print(f"Optimized temperature: {torch.exp(model.log_temperature).item():.4f}")
     return model
 
 
@@ -470,12 +487,13 @@ def posthoc_calibration(y_scores, y_true, method_calibration='platt'):
         if calibrated_logits.ndim == 1 or calibrated_logits.shape[1] == 1:
             calibrated_probs = torch.sigmoid(calibrated_logits).numpy()
             y_prob_true = calibrated_probs.squeeze()
+                  
         else:
             calibrated_probs = torch.softmax(calibrated_logits, dim=1).numpy()
             y_prob_true = calibrated_probs[np.arange(len(y_true)), y_true]
 
     elif method_calibration == 'platt':
-        model = LogisticRegression()
+        model = LogisticRegression(C=0.01, class_weight='balanced', max_iter=1000)
         model.fit(y_scores.reshape(-1, 1), y_true)
         calibrated_probs = model.predict_proba(y_scores.reshape(-1, 1))[:, 1]
         y_prob_true = calibrated_probs
@@ -486,15 +504,13 @@ def posthoc_calibration(y_scores, y_true, method_calibration='platt'):
         y_prob_true = calibrated_probs
     else:
         raise ValueError("Invalid method. Choose 'platt', 'isotonic', or 'temperature'.")
-    
-    
 
     brier = brier_score_loss((y_true == np.argmax(calibrated_probs, axis=1)) if y_scores.ndim > 1 else y_true, y_prob_true)
     print(f"Brier Score Loss ({method_calibration}): {brier:.4f}")
 
-    return calibrated_probs, model
+    return y_prob_true, model
         
-def model_calibration_plot(true_labels, predictions, n_bins=10):
+def model_calibration_plot(true_labels, predictions, n_bins=20):
     """
     Plot a calibration curve (reliability diagram).
     
