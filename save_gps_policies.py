@@ -13,4 +13,4 @@ calibration_loader_for_tta, calibration_dataset=tr.load_datasets(dataflag, color
 
 device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')  
 
-uq.apply_randaugment_and_store_results(calibration_loader_for_tta, models, 2, 45, 500, device, folder_name=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment/{im_size}*{im_size}/{dataflag}_calibration_set', image_normalization=True, mean=[.5], std=[.5], image_size=im_size, nb_channels=3, output_activation=activation, calibration_dataset=calibration_dataset, batch_size=batch_size)
+uq.apply_randaugment_and_store_results(calibration_dataset, models, 2, 45, 500, device, folder_name=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment/{im_size}*{im_size}/{dataflag}_calibration_set', image_normalization=True, mean=[.5], std=[.5], image_size=im_size, nb_channels=3, output_activation=activation, batch_size=batch_size)
