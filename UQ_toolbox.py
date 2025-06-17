@@ -15,7 +15,7 @@ from torchvision import transforms
 import torch.nn.functional as F
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from collections import defaultdict
 from gps_augment.utils.randaugment import BetterRandAugment
 import shap
@@ -141,10 +141,18 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10, usingBett
                 stds_policies.append(stds)
             stds = np.mean(stds_policies, axis=0)
         else:
-            batch_predictions = [get_batch_predictions(models, augmented_input.squeeze(0), device) for augmented_input in augmented_inputs]
-            averaged_predictions = [average_predictions(pred, output_activation) for pred in batch_predictions]
+            predictions = []
+            for augmented_input in augmented_inputs:
+                dataset = TensorDataset(augmented_input.squeeze(0))
+                loader = DataLoader(dataset, batch_size=batch_size, pin_memory=True)
+                all_preds = []
+                for batch in loader:
+                    batch_predictions = get_batch_predictions(models, batch[0], device)
+                    averaged_predictions = [average_predictions(pred, output_activation) for pred in batch_predictions.permute(1, 0, 2)]
+                    all_preds.extend(averaged_predictions)
+                predictions.append(torch.stack(all_preds))
 
-            averaged_predictions = torch.stack(averaged_predictions, dim=0).permute(1, 0, 2)  # Shape: [batch_size, nb_augmentations, num_classes]
+            averaged_predictions = torch.stack(predictions, dim=0).permute(1, 0, 2)  # Shape: [batch_size, nb_augmentations, num_classes]
         
             stds = compute_stds(averaged_predictions)
     
@@ -268,7 +276,7 @@ def apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m,
             for batch in data_loader:
                 augmented_images = batch[0]
                 augmented_inputs_batch.append(augmented_images)
-            augmented_inputs.append(torch.stack(augmented_inputs_batch, dim=0))
+            augmented_inputs.append(torch.cat(augmented_inputs_batch, dim=0))
         augmented_inputs = torch.stack(augmented_inputs, dim=0)  # Shape: [ num_augmentations, batch_size, C, H, W]
     
     if usingBetterRandAugment and save_policies is False:
