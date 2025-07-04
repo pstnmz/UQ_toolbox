@@ -30,12 +30,12 @@ def train_val_loaders(train_dataset, batch_size):
         val_loaders.append(val_loader)
     return train_loaders, val_loaders
 
-dataflag = 'pneumoniamnist'
+dataflag = 'octmnist'
 color = False # True for color, False for grayscale
-activation = 'sigmoid'
+activation = 'softmax'
 batch_size = 4000
 im_size = 224
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
 size = 224  # Image size for the models
 batch_size = 4000  # Batch size for the DataLoader
 

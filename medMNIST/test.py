@@ -4,7 +4,6 @@ import os
 # Get the absolute path to the root directory where UQ_toolbox.py is located
 root_dir = os.path.abspath(os.path.join(os.path.dirname('medMNIST'), '..'))
 sys.path.append(root_dir)
-
 import medmnist
 from adjustText import adjust_text
 from medmnist import INFO, Evaluator
@@ -25,9 +24,9 @@ import matplotlib.pyplot as plt
 import UQ_toolbox as uq
 import pickle as pkl
 import pandas as pd
+from PIL import Image
 import umap.umap_ as umap
 from medMNIST.utils import train_load_datasets_resnet as tr
-
 
 def test_eval(test_loader, device, models, data_flag):
     info = INFO[data_flag]
@@ -232,7 +231,6 @@ def find_best_threshold_and_compute_metrics(values, correct_predictions, optimiz
 
     return balanced_acc
 
-
 def computeMSR(y_prob, y_true, task_type, calibration_needed=False, method_calibration=None, display_calibration_curve=False, y_scores_calibration=None, y_true_calibration=None):
     if calibration_needed:
             # Perform post-hoc calibration using the calibration dataset
@@ -351,22 +349,64 @@ def computeKNNshap(models, train_loaders, test_loader, device, num_classes=None,
 
     return metric
 
+def remove_black_borders(pil_img, padding=2):
+    """Removes black borders from a PIL image and resizes back to original size."""
+    img_np = np.array(pil_img)
+    
+    # Handle grayscale (2D) or RGB (3D)
+    if img_np.ndim == 2:
+        mask = img_np != 0
+    else:
+        mask = np.any(img_np != 0, axis=2)
+
+    if not np.any(mask):
+        return pil_img  # Totally black
+
+    coords = np.argwhere(mask)
+    y0, x0 = coords.min(axis=0)
+    y1, x1 = coords.max(axis=0) + 1
+
+    # Pad the crop box
+    y0 = max(y0 - padding, 0)
+    x0 = max(x0 - padding, 0)
+    y1 = min(y1 + padding, pil_img.height)
+    x1 = min(x1 + padding, pil_img.width)
+
+    cropped = pil_img.crop((x0, y0, x1, y1))
+    return cropped.resize((pil_img.width, pil_img.height), resample=Image.BILINEAR)
+
 def computeTTA(aug_type, models, test_dataset, device, num_classes=2, correct_predictions_calibration=None, incorrect_predictions_calibration=None, image_normalization=False, aug_folder=None, mean=[0.5], std=[0.5], max_iterations=10, gps_augment=None, batch_size=None, color=False):
     if num_classes == 2:
         output_activation='sigmoid'
     else:
         output_activation='softmax'
     if aug_type == 'randaugment':
+        # Original RandAugment (may include geometric transforms)
         transformation_pipeline = transforms.Compose([
-                        transforms.ToTensor(),
-                        transforms.ToPILImage(),
-                        transforms.RandAugment(2, 9),
-                        transforms.PILToTensor(),
-                        transforms.ConvertImageDtype(torch.float),
-                        *([transforms.Normalize(mean=mean, std=std)] if image_normalization else []),
-                        *([transforms.Lambda(lambda x: x.repeat(3, 1, 1))] if color is False else [])
-                    ])
+            transforms.ToTensor(),
+            transforms.ToPILImage(),
+            transforms.RandAugment(num_ops=2, magnitude=9, interpolation=transforms.InterpolationMode.BILINEAR),
+            transforms.PILToTensor(),
+            transforms.ConvertImageDtype(torch.float),
+            *([transforms.Normalize(mean=mean, std=std)] if image_normalization else []),
+            *([transforms.Lambda(lambda x: x.repeat(3, 1, 1))] if color is False else [])
+        ])
         metric, global_preds = uq.TTA(transformation_pipeline, models, test_dataset, device, nb_augmentations=5, nb_channels=3, output_activation=output_activation, usingBetterRandAugment=False, mean=mean, std=std, batch_size=batch_size)
+    
+    elif aug_type == 'randaugment_without_geometric_transforms':
+        
+        transformation_pipeline = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.ToPILImage(),
+            transforms.RandAugment(num_ops=2, magnitude=9, interpolation=transforms.InterpolationMode.BILINEAR),
+            transforms.Lambda(remove_black_borders),
+            transforms.PILToTensor(),
+            transforms.ConvertImageDtype(torch.float),
+            *([transforms.Normalize(mean=mean, std=std)] if image_normalization else []),
+            *([transforms.Lambda(lambda x: x.repeat(3, 1, 1))] if color is False else [])
+        ])
+        metric, global_preds = uq.TTA(transformation_pipeline, models, test_dataset, device, nb_augmentations=5, nb_channels=3, output_activation=output_activation, usingBetterRandAugment=False, mean=mean, std=std, batch_size=batch_size)
+        
     elif aug_type == 'crops_flips':
         transformation_pipeline = transforms.Compose([
             transforms.ToPILImage(),
@@ -400,7 +440,6 @@ def display_UQ_results(metric, correct_predictions, incorrect_predictions, y_axi
     uq.UQ_method_plot([metric[k] for k in correct_predictions], [metric[j] for j in incorrect_predictions], y_axis_title, title, swarmplot)
     print(auc)
     return auc, balanced_acc
-
 
 def call_UQ_methods(
     methods,
@@ -474,6 +513,13 @@ def call_UQ_methods(
                 aucs.append((method, auc))
                 balanced_acc.append((method, b_acc))
                 metrics.append((method, metric))
+        elif method == 'TTA_without_geometric_transforms':
+            if models is not None and test_dataset_tta is not None and device is not None:
+                metric = computeTTA('randaugment_without_geometric_transforms', models, test_dataset_tta, device, num_classes=num_classes, image_normalization=image_normalization, batch_size=batch_size, color=color)
+                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'std', 'TTA_no_geom_transforms', optim_metric=optim_metric, swarmplot=swarmplot)
+                aucs.append((method, auc))
+                balanced_acc.append((method, b_acc))
+                metrics.append((method, metric))
         elif method == 'GPS':
             if models is not None and test_dataset_tta is not None and device is not None:
                 metric = computeTTA('GPS', models, test_dataset_tta, device, num_classes=num_classes, correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration, image_normalization=image_normalization, aug_folder=aug_folder, max_iterations=max_iteration, gps_augment=gps_augment)
@@ -497,65 +543,12 @@ def call_UQ_methods(
                 metrics.append((method, metric))
     return metrics, aucs, balanced_acc
 
-def plot_perf_vs_uq_perf(perf_dicts, perf_uq, calibration_sizes, uq_methods_names=None):
-    """
-    Scatter plots:
-    1. Balanced accuracy of model performance vs. AUC of UQ methods tested.
-    2. Calibration data size vs. AUC of UQ methods tested.
-
-    Args:
-        perf_dicts (list of dict): List of performance dictionaries, each with 'balanced_accuracy' key.
-        aucs (list of float): List of precomputed AUCs for each UQ method.
-        calibration_sizes (list of int): List of calibration data sizes (one per experiment).
-        uq_methods_names (list of str, optional): Names of UQ methods to plot. If None, use all.
-    """
-    # If method names are not provided, use generic names
-    if uq_methods_names is None:
-        uq_methods_names = [f"Method {i+1}" for i in range(len(perf_uq))]
-
-    # 1. Balanced accuracy vs. AUC
-    balanced_accuracies = [perf['balanced_accuracy'] for perf in perf_dicts]
-    plt.figure(figsize=(8, 6))
-    plt.scatter(balanced_accuracies, perf_uq)
-    try:
-        texts = [plt.text(balanced_accuracies[i], perf_uq[i], txt) for i, txt in enumerate(uq_methods_names)]
-        adjust_text(texts, arrowprops=dict(arrowstyle='->', color='red'))
-    except ImportError:
-        # Fallback to default annotation if adjustText is not installed
-        for i, txt in enumerate(uq_methods_names):
-            plt.annotate(txt, (balanced_accuracies[i], perf_uq[i]))
-    plt.xlabel('Balanced Accuracy of Model')
-    plt.ylabel('Balanced Accuracy of UQ Method')
-    plt.title('Classification balanced accuracy vs. UQ Method balanced accuracy')
-    plt.grid(True)
-    plt.show()
-
-    # 2. Calibration data size vs. AUC
-    plt.figure(figsize=(8, 6))
-    plt.scatter(calibration_sizes, perf_uq)
-    # Use logarithmic scale for x-axis
-    plt.xscale('log')
-    # Use adjustText to avoid overlapping labels
-    try:
-        texts = [plt.text(calibration_sizes[i], perf_uq[i], txt) for i, txt in enumerate(uq_methods_names)]
-        adjust_text(texts, arrowprops=dict(arrowstyle='->', color='red'))
-    except ImportError:
-        # Fallback to default annotation if adjustText is not installed
-        for i, txt in enumerate(uq_methods_names):
-            plt.annotate(txt, (calibration_sizes[i], perf_uq[i]))
-    plt.xlabel('Calibration Data Size (log scale)')
-    plt.ylabel('Balanced Accuracy of UQ Method')
-    plt.title('Calibration Data Size vs. UQ Method balanced accuracy')
-    plt.grid(True)
-    plt.show()
-
-
-flags = ['dermamnist']
-calib_method = ['temperature']
-colors = [True]  # Colors for the flags
-activations = ['softmax']  # Output activations for each flag
+flags = ['breastmnist', 'organamnist', 'pneumoniamnist', 'dermamnist', 'octmnist', 'pathmnist', 'bloodmnist', 'tissuemnist']
+calib_method = ['platt', 'temperature', 'platt', 'temperature', 'temperature', 'temperature', 'temperature', 'temperature']
+colors = [False, False, False, True, False, True, True, False]  # Colors for the flags
+activations = ['sigmoid', 'softmax', 'sigmoid', 'softmax', 'softmax', 'softmax', 'softmax', 'softmax']  # Output activations for each flag
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-uq_methods = ['TTA']#, 'GPS', 'KNNshap', 'KNNall']  
+uq_methods = ['GPS']#, 'KNNshap', 'KNNall']  
 size = 224  # Image size for the models
 batch_size = 4000  # Batch size for the DataLoader
 model_global_perfs = {}
@@ -613,5 +606,6 @@ for flag, color, activation, calib_method in zip(flags, colors, activations, cal
 
         correct_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] == np.argmax(y_scores_calibration[i])]
         incorrect_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] != np.argmax(y_scores_calibration[i])]
+    break
 
-    uq_metrics, aucs, balanced_acc = call_UQ_methods(uq_methods, models, y_prob, digits, y_true, digits_calib, y_true_calibration, indiv_scores, task_type, correct_predictions, incorrect_predictions, test_loader, device, optim_metric='balanced_accuracy', train_loaders=train_loaders, test_dataset_tta=test_dataset_tta, num_classes=num_classes, image_normalization=True, swarmplot=False, calib_method=calib_method, batch_size=batch_size, color=color)
+uq_metrics, aucs, balanced_acc = call_UQ_methods(uq_methods, models, y_prob, digits, y_true, digits_calib, y_true_calibration, indiv_scores, task_type, correct_predictions, incorrect_predictions, test_loader, device, optim_metric='balanced_accuracy', train_loaders=train_loaders, test_dataset_tta=test_dataset_tta, num_classes=num_classes, image_normalization=True, swarmplot=False, calib_method=calib_method, batch_size=batch_size, color=color, aug_folder=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment/{size}*{size}/{flag}_calibration_set', correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration)

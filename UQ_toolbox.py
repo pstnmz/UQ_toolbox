@@ -188,7 +188,7 @@ def apply_randaugment_and_store_results(
             all_preds.extend(averaged_predictions)
         averaged_predictions = torch.stack(all_preds)
         # Save predictions
-        policy_key = str(augmentations[0].transforms[2].get_transform())
+        policy_key = str(augmentations[0].transforms[3].get_transform())
         filename = f'{folder_name}/N{N}_M{M}_{policy_key}.npz'
         np.savez_compressed(filename, predictions=averaged_predictions.numpy())
 
@@ -224,6 +224,7 @@ def apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m,
         augmentations = [transforms.Compose([
                     transforms.ToTensor(),
                     transforms.ToPILImage(),
+                    transforms.Lambda(lambda img: img.convert("RGB")),  # Ensure image is in RGB format
                     *([to_3_channels] if nb_channels == 1 else []),  # Conditionally add to_3_channels
                     rand_aug,
                     *([to_1_channel] if nb_channels == 1 else []),  # Conditionally add to_1_channel
@@ -235,12 +236,14 @@ def apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m,
         for i, augmentation in enumerate(augmentations):
             augmented_inputs_batch = []
             print(f"Applying augmentation n : {i}")
-            dataset.transform = augmentation
+            for subds in dataset.dataset.datasets:
+                subds.transform = augmentation
             data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=72, pin_memory=True)
 
             for batch in data_loader:
                 augmented_images = batch[0]
                 augmented_inputs_batch.append(augmented_images)
+                
             augmented_inputs.append(torch.cat(augmented_inputs_batch, dim=0))
             augmented_inputs = torch.stack(augmented_inputs, dim=0)  # Shape: [ num_augmentations, batch_size, C, H, W]
 
@@ -248,7 +251,8 @@ def apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m,
         for i in range(nb_augmentations):
             augmented_inputs_batch = []
             print(f"Applying augmentation n : {i}")
-            dataset.transform = transformations
+            for subds in dataset.dataset.datasets:
+                subds.transform = augmentation
             data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=72, pin_memory=True)
 
             for batch in data_loader:
