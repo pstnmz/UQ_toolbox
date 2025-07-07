@@ -123,8 +123,8 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10, usingBett
             if isinstance(transformations, list) and all(isinstance(t, list) for t in transformations):
                 augmentations = []
                 for transformation in transformations:
-                    augmented_inputs, _ = apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformation)
-                    augmentations.append(augmented_inputs, batch_size=batch_size)
+                    augmented_inputs, _ = apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformation, batch_size=batch_size)
+                    augmentations.append(augmented_inputs)
             else:
                 augmented_inputs, _ = apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations, batch_size=batch_size)
         else:
@@ -236,8 +236,12 @@ def apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m,
         for i, augmentation in enumerate(augmentations):
             augmented_inputs_batch = []
             print(f"Applying augmentation n : {i}")
-            for subds in dataset.dataset.datasets:
-                subds.transform = augmentation
+            if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'datasets'):
+                for subds in dataset.dataset.datasets:
+                    subds.transform = augmentation
+            else:
+                dataset.transform = augmentation
+            
             data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=72, pin_memory=True)
 
             for batch in data_loader:
@@ -245,7 +249,7 @@ def apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m,
                 augmented_inputs_batch.append(augmented_images)
                 
             augmented_inputs.append(torch.cat(augmented_inputs_batch, dim=0))
-            augmented_inputs = torch.stack(augmented_inputs, dim=0)  # Shape: [ num_augmentations, batch_size, C, H, W]
+        augmented_inputs = torch.stack(augmented_inputs, dim=0)  # Shape: [ num_augmentations, batch_size, C, H, W]
 
     else:
         for i in range(nb_augmentations):

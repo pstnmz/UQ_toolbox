@@ -30,8 +30,8 @@ def train_val_loaders(train_dataset, batch_size):
         val_loaders.append(val_loader)
     return train_loaders, val_loaders
 
-dataflag = 'octmnist'
-color = False # True for color, False for grayscale
+dataflag = 'bloodmnist'
+color = True # True for color, False for grayscale
 activation = 'softmax'
 batch_size = 4000
 im_size = 224

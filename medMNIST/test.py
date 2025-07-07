@@ -375,7 +375,7 @@ def remove_black_borders(pil_img, padding=2):
     cropped = pil_img.crop((x0, y0, x1, y1))
     return cropped.resize((pil_img.width, pil_img.height), resample=Image.BILINEAR)
 
-def computeTTA(aug_type, models, test_dataset, device, num_classes=2, correct_predictions_calibration=None, incorrect_predictions_calibration=None, image_normalization=False, aug_folder=None, mean=[0.5], std=[0.5], max_iterations=10, gps_augment=None, batch_size=None, color=False):
+def computeTTA(aug_type, models, test_dataset, device, num_classes=2, correct_predictions_calibration=None, incorrect_predictions_calibration=None, image_normalization=False, aug_folder=None, mean=[0.5], std=[0.5], max_iterations=10, gps_augment=None, batch_size=None, color=False, im_size=None):
     if num_classes == 2:
         output_activation='sigmoid'
     else:
@@ -430,7 +430,7 @@ def computeTTA(aug_type, models, test_dataset, device, num_classes=2, correct_pr
             n = gps_augment[0]
             m = gps_augment[1]
             transformation_pipeline = gps_augment[2]
-        metric, global_preds_GPS = uq.TTA(transformation_pipeline, models, test_dataset, device, usingBetterRandAugment=True, n=n, m=m, nb_channels=3, image_size=28, image_normalization=image_normalization, output_activation=output_activation, mean=mean, std=std, batch_size=batch_size)
+        metric, global_preds_GPS = uq.TTA(transformation_pipeline, models, test_dataset, device, usingBetterRandAugment=True, n=n, m=m, nb_channels=3, image_size=im_size, image_normalization=image_normalization, output_activation=output_activation, mean=mean, std=std, batch_size=batch_size)
     
     return metric
 
@@ -471,7 +471,8 @@ def call_UQ_methods(
     max_iteration=10,
     swarmplot=True,
     calib_method='temperature',
-    batch_size=None
+    batch_size=None,
+    image_size=None
 ):
     metrics = []
     methods = methods or []
@@ -522,7 +523,7 @@ def call_UQ_methods(
                 metrics.append((method, metric))
         elif method == 'GPS':
             if models is not None and test_dataset_tta is not None and device is not None:
-                metric = computeTTA('GPS', models, test_dataset_tta, device, num_classes=num_classes, correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration, image_normalization=image_normalization, aug_folder=aug_folder, max_iterations=max_iteration, gps_augment=gps_augment)
+                metric = computeTTA('GPS', models, test_dataset_tta, device, num_classes=num_classes, correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration, image_normalization=image_normalization, aug_folder=aug_folder, max_iterations=max_iteration, gps_augment=gps_augment, im_size=image_size, batch_size=batch_size)
                 auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'std', 'GPS', optim_metric=optim_metric, swarmplot=swarmplot)
                 aucs.append((method, auc))
                 balanced_acc.append((method, b_acc))
@@ -608,4 +609,4 @@ for flag, color, activation, calib_method in zip(flags, colors, activations, cal
         incorrect_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] != np.argmax(y_scores_calibration[i])]
     break
 
-uq_metrics, aucs, balanced_acc = call_UQ_methods(uq_methods, models, y_prob, digits, y_true, digits_calib, y_true_calibration, indiv_scores, task_type, correct_predictions, incorrect_predictions, test_loader, device, optim_metric='balanced_accuracy', train_loaders=train_loaders, test_dataset_tta=test_dataset_tta, num_classes=num_classes, image_normalization=True, swarmplot=False, calib_method=calib_method, batch_size=batch_size, color=color, aug_folder=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment/{size}*{size}/{flag}_calibration_set', correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration)
+uq_metrics, aucs, balanced_acc = call_UQ_methods(uq_methods, models, y_prob, digits, y_true, digits_calib, y_true_calibration, indiv_scores, task_type, correct_predictions, incorrect_predictions, test_loader, device, optim_metric='balanced_accuracy', train_loaders=train_loaders, test_dataset_tta=test_dataset_tta, num_classes=num_classes, image_normalization=True, swarmplot=False, calib_method=calib_method, batch_size=batch_size, color=color, aug_folder=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment/{size}*{size}/{flag}_calibration_set', correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration, image_size=size)
