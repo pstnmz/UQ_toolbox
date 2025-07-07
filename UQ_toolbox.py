@@ -24,6 +24,9 @@ from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 from sklearn.linear_model import LogisticRegression
 from sklearn.isotonic import IsotonicRegression
+from scipy.cluster.hierarchy import dendrogram, linkage
+from scipy.spatial.distance import squareform
+from sklearn.preprocessing import StandardScaler
 
 class AddBatchDimension:
     def __call__(self, image):
@@ -645,15 +648,10 @@ def standardize_and_ensemble(distributions, metric):
     Returns:
     mean_values: 1D numpy array containing the mean standardized value for each row.
     """
-    # Flatten the array to compute the global mean and standard deviation
-    combined = distributions.flatten()
     
     # Compute global mean and standard deviation
-    global_mean = np.mean(combined)
-    global_std_dev = np.std(combined)
-    
-    # Apply z-score standardization to each distribution (column)
-    standardized_distributions = (distributions - global_mean) / global_std_dev
+    scaler = StandardScaler()
+    standardized_distributions = scaler.fit_transform(distributions)
     if metric == 'mean':
         # Compute the mean standardized value for each instance (row)
         ensembled_values = np.mean(standardized_distributions, axis=1)
@@ -1148,8 +1146,7 @@ def feature_engineering_pipeline(mean_shap_df, latent_space, shap_threshold=0.05
     abs_correlation_matrix = np.abs(correlation_matrix)
 
     # Visualize correlation heatmap with dendrogram after SHAP filtering
-    from scipy.cluster.hierarchy import dendrogram, linkage
-    from scipy.spatial.distance import squareform
+
 
     linkage_matrix = linkage(squareform(1 - abs_correlation_matrix), method="ward")
 
