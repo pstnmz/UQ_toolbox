@@ -1,10 +1,6 @@
 import sys
 import os
 
-# Get the absolute path to the root directory where UQ_toolbox.py is located
-root_dir = os.path.abspath(os.path.join(os.path.dirname('medMNIST'), '..'))
-sys.path.append(root_dir)
-import medmnist
 from adjustText import adjust_text
 from medmnist import INFO, Evaluator
 import torch
@@ -548,10 +544,10 @@ flags = ['breastmnist', 'organamnist', 'pneumoniamnist', 'dermamnist', 'octmnist
 calib_method = ['platt', 'temperature', 'platt', 'temperature', 'temperature', 'temperature', 'temperature', 'temperature']
 colors = [False, False, False, True, False, True, True, False]  # Colors for the flags
 activations = ['sigmoid', 'softmax', 'sigmoid', 'softmax', 'softmax', 'softmax', 'softmax', 'softmax']  # Output activations for each flag
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
 uq_methods = ['GPS']#, 'KNNshap', 'KNNall']  
 size = 224  # Image size for the models
-batch_size = 4000  # Batch size for the DataLoader
+batch_size = 512  # Batch size for the DataLoader
 model_global_perfs = {}
 
 for flag, color, activation, calib_method in zip(flags, colors, activations, calib_method):
@@ -607,6 +603,12 @@ for flag, color, activation, calib_method in zip(flags, colors, activations, cal
 
         correct_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] == np.argmax(y_scores_calibration[i])]
         incorrect_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] != np.argmax(y_scores_calibration[i])]
-    break
-
-uq_metrics, aucs, balanced_acc = call_UQ_methods(uq_methods, models, y_prob, digits, y_true, digits_calib, y_true_calibration, indiv_scores, task_type, correct_predictions, incorrect_predictions, test_loader, device, optim_metric='balanced_accuracy', train_loaders=train_loaders, test_dataset_tta=test_dataset_tta, num_classes=num_classes, image_normalization=True, swarmplot=False, calib_method=calib_method, batch_size=batch_size, color=color, aug_folder=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment/{size}*{size}/{flag}_calibration_set', correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration, image_size=size)
+    uq_metrics, aucs, balanced_acc = call_UQ_methods(uq_methods, models, y_prob, digits, y_true, digits_calib, y_true_calibration, indiv_scores, task_type, correct_predictions, incorrect_predictions, test_loader, device, optim_metric='balanced_accuracy', train_loaders=train_loaders, test_dataset_tta=test_dataset_tta, num_classes=num_classes, image_normalization=True, swarmplot=False, calib_method=calib_method, batch_size=batch_size, color=color, aug_folder=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment/{size}*{size}/{flag}_calibration_set', correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration, image_size=size)
+    model_global_perfs[flag] = {}
+    model_global_perfs[flag]['class_perf'] = performances
+    model_global_perfs[flag]['calibration_size'] = len(calibration_dataset)
+    model_global_perfs[flag]['uq_metrics'] = uq_metrics
+    model_global_perfs[flag]['aucs_UQ'] = aucs
+    model_global_perfs[flag]['balanced_acc_UQ'] = balanced_acc
+with open("model_global_perfs_gps.pkl", "wb") as f:
+    pkl.dump(model_global_perfs, f)

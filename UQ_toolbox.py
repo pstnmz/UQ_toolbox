@@ -122,41 +122,44 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10, usingBett
     if usingBetterRandAugment:
         nb_augmentations = len(transformations)
     with torch.no_grad():
-        if usingBetterRandAugment:
-            if isinstance(transformations, list) and all(isinstance(t, list) for t in transformations):
-                augmentations = []
-                for transformation in transformations:
-                    augmented_inputs, _ = apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformation, batch_size=batch_size)
-                    augmentations.append(augmented_inputs)
-            else:
-                augmented_inputs, _ = apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations, batch_size=batch_size)
-        else:
-            augmented_inputs = apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations, batch_size=batch_size)
-        
-        if isinstance(transformations, list) and all(isinstance(t, list) for t in transformations):
-            
-            stds_policies = []
-            for augmented_inputs in augmentations:
-                batch_predictions = [get_batch_predictions(models, augmented_input.squeeze(0), device) for augmented_input in augmented_inputs]
-                averaged_predictions = [average_predictions(pred, output_activation) for pred in batch_predictions]
-                averaged_predictions = torch.stack(averaged_predictions, dim=0).permute(1, 0, 2)  # Shape: [batch_size, nb_augmentations, num_classes]
-                stds = compute_stds(averaged_predictions)
-                stds_policies.append(stds)
-            stds = np.mean(stds_policies, axis=0)
-        else:
-            predictions = []
-            for augmented_input in augmented_inputs:
-                dataset = TensorDataset(augmented_input.squeeze(0))
-                loader = DataLoader(dataset, batch_size=batch_size, pin_memory=True)
+        predictions = []
+        if usingBetterRandAugment and isinstance(transformations, list) and all(isinstance(t, list) for t in transformations):
+            # Multiple policies: process each policy one by one
+            for transformation in transformations:
+                # Apply augmentations for this policy, get DataLoader
+                augmented_inputs, _ = apply_augmentations(
+                    dataset, 1, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformation, batch_size=batch_size
+                )
+                # augmented_inputs shape: [1, batch_size, C, H, W]
+                dataset_aug = TensorDataset(augmented_inputs[0])
+                loader = DataLoader(dataset_aug, batch_size=batch_size, pin_memory=True)
                 all_preds = []
                 for batch in loader:
                     batch_predictions = get_batch_predictions(models, batch[0], device)
-                    averaged_predictions = [average_predictions(pred, output_activation) for pred in batch_predictions.permute(1, 0, 2)]
-                    all_preds.extend(averaged_predictions)
-                predictions.append(torch.stack(all_preds))
-
-            averaged_predictions = torch.stack(predictions, dim=0).permute(1, 0, 2)  # Shape: [batch_size, nb_augmentations, num_classes]
-        
+                    avg_preds = average_predictions(batch_predictions, output_activation)
+                    all_preds.append(avg_preds)
+                predictions.append(torch.cat(all_preds, dim=0))
+            # Stack predictions: [num_policies, batch_size, num_classes]
+            averaged_predictions = torch.stack(predictions, dim=0).permute(1, 0, 2)  # [batch_size, num_policies, num_classes]
+            stds = compute_stds(averaged_predictions)
+        else:
+            # Single policy or standard TTA: process each augmentation one by one
+            for aug_idx in range(nb_augmentations):
+                # Apply augmentation for this index
+                augmented_inputs = apply_augmentations(
+                    dataset, 1, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations, batch_size=batch_size
+                )
+                # augmented_inputs shape: [1, batch_size, C, H, W]
+                dataset_aug = TensorDataset(augmented_inputs[0])
+                loader = DataLoader(dataset_aug, batch_size=batch_size, pin_memory=True)
+                all_preds = []
+                for batch in loader:
+                    batch_predictions = get_batch_predictions(models, batch[0], device)
+                    avg_preds = average_predictions(batch_predictions, output_activation)
+                    all_preds.append(avg_preds)
+                predictions.append(torch.cat(all_preds, dim=0))
+            # Stack predictions: [nb_augmentations, batch_size, num_classes]
+            averaged_predictions = torch.stack(predictions, dim=0).permute(1, 0, 2)  # [batch_size, nb_augmentations, num_classes]
             stds = compute_stds(averaged_predictions)
     
     return stds, averaged_predictions
