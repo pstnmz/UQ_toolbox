@@ -416,7 +416,7 @@ def computeTTA(aug_type, models, test_dataset, device, num_classes=2, correct_pr
         
     elif aug_type == 'GPS':
         if gps_augment is None:
-            best_aug = uq.perform_greedy_policy_search(aug_folder, correct_predictions_calibration, incorrect_predictions_calibration, num_workers=90, max_iterations=max_iterations, num_searches=30, top_k=5, plot=True)
+            best_aug = uq.perform_greedy_policy_search(aug_folder, correct_predictions_calibration, incorrect_predictions_calibration, num_workers=90, max_iterations=max_iterations, num_searches=30, top_k=3, plot=True)
             if isinstance(best_aug, list) and all(isinstance(policy, list) for policy in best_aug):
                 transformation_pipeline = []
                 for aug in best_aug:
@@ -540,14 +540,14 @@ def call_UQ_methods(
                 metrics.append((method, metric))
     return metrics, aucs, balanced_acc
 
-flags = ['breastmnist', 'organamnist', 'pneumoniamnist', 'dermamnist', 'octmnist', 'pathmnist', 'bloodmnist', 'tissuemnist']
+flags = ['pathmnist']
 calib_method = ['platt', 'temperature', 'platt', 'temperature', 'temperature', 'temperature', 'temperature', 'temperature']
-colors = [False, False, False, True, False, True, True, False]  # Colors for the flags
-activations = ['sigmoid', 'softmax', 'sigmoid', 'softmax', 'softmax', 'softmax', 'softmax', 'softmax']  # Output activations for each flag
-device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
+colors = [True]#, False, False, True, False, True, True, False]  # Colors for the flags
+activations = ['softmax']#, 'softmax', 'sigmoid', 'softmax', 'softmax', 'softmax', 'softmax', 'softmax']  # Output activations for each flag
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 uq_methods = ['GPS']#, 'KNNshap', 'KNNall']  
 size = 224  # Image size for the models
-batch_size = 512  # Batch size for the DataLoader
+batch_size = 4000  # Batch size for the DataLoader
 model_global_perfs = {}
 
 for flag, color, activation, calib_method in zip(flags, colors, activations, calib_method):

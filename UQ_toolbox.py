@@ -586,6 +586,8 @@ def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, s
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
     plt.show()
+    plt.savefig(f"{title}.png")  # or any filename you want
+    plt.close()
 
 def roc_curve_UQ_method_computation(correct_predictions, incorrect_predictions):
     """
@@ -613,6 +615,10 @@ def roc_curve_UQ_method_computation(correct_predictions, incorrect_predictions):
 
     # Calculate and print AUC
     auc_score = roc_auc_score(gstd, predictions)
+
+    # Sign the AUC: ensure bad_idx (failures) have higher preds_std
+    if np.mean(incorrect_predictions) < np.mean(correct_predictions):
+        auc_score = -auc_score  # or 1 - auc_score, depending on your convention
     
     return fpr, tpr, auc_score
 
@@ -685,7 +691,7 @@ def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, mi
     group_indices = [initial_aug_idx]  # Initialize with the given augmentation
     best_metric = -np.inf
     best_group_indices = list(group_indices)  # Track the augmentations that give the best ROC AUC
-
+    all_aucs = []
     all_roc_aucs = []  # Store the AUCs for plotting
     no_improvement_count = 0  # Track consecutive iterations with insufficient improvement
     for new_member_i in range(select_only):
@@ -698,11 +704,11 @@ def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, mi
             if new_i in group_indices:
                 continue
 
-            current_augmentations = group_indices + [new_i]  # Add new augmentation to the selected group
-            if val_preds[current_augmentations, :, :].ndim == 2:
+            current_augmentations = group_indices + [np.int64(new_i)]  # Add new augmentation to the selected group
+            if val_preds[np.array(current_augmentations), :, :].shape[2] == 1:
                 # Binary classification: shape (num_models, num_samples)
                 preds_std = np.std(val_preds[current_augmentations, :, :], axis=0)
-            elif val_preds[current_augmentations, :, :].ndim == 3:
+            elif val_preds[np.array(current_augmentations), :, :].shape[2] != 1 or val_preds[np.array(current_augmentations), :, :].ndim == 3:
                 # Multiclass classification: shape (num_models, num_samples, num_classes)
                 stds_per_class = np.std(val_preds[current_augmentations, :, :], axis=0)
                 preds_std = np.mean(stds_per_class, axis=1)
@@ -712,10 +718,13 @@ def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, mi
                 [preds_std[k] for k in good_idx], 
                 [preds_std[j] for j in bad_idx]
             )[2]
-
+            all_aucs.append(roc_auc)  # Store the AUC for plotting
             if roc_auc > 0.5 and roc_auc > best_iteration_metric:
                 best_s = new_i
                 best_iteration_metric = roc_auc
+        if best_s is None:
+            print(f"No valid policy found for iteration {new_member_i + 1}. Stopping search.")
+            break
         if len(all_roc_aucs) > 0:
             # Calculate improvement and check early stopping
             improvement = best_iteration_metric - all_roc_aucs[-1]
@@ -724,11 +733,11 @@ def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, mi
             else:
                 no_improvement_count += 1
 
-            # Stop if there is no significant improvement for `patience` consecutive iterations
-            if no_improvement_count >= patience:
-                print(f"Early stopping at iteration {new_member_i + 1} due to no improvement > {min_improvement} in last {patience} iterations.")
-                break
-        
+        # Stop if there is no significant improvement for `patience` consecutive iterations
+        if no_improvement_count >= patience:
+            print(f"Early stopping at iteration {new_member_i + 1} due to no improvement > {min_improvement} in last {patience} iterations.")
+            break
+    
         # Track the best augmentations and metric so far
         if best_iteration_metric > best_metric:
             best_metric = best_iteration_metric
@@ -738,6 +747,31 @@ def greedy_search(initial_aug_idx, val_preds, good_idx, bad_idx, select_only, mi
         group_indices.append(best_s)
         all_roc_aucs.append(best_iteration_metric)
         print(f"Selected Policy {best_s}: roc_auc={best_iteration_metric:.4f}")
+
+    # If only one policy was selected, try to add the next best policy
+    if len(best_group_indices) == 1:
+        print("Only one policy selected, searching for the next best policy to add...")
+        best_second_metric = -np.inf
+        best_second = None
+        for new_i in range(val_preds.shape[0]):
+            if new_i == best_group_indices[0]:
+                continue
+            current_augmentations = best_group_indices + [new_i]
+            if val_preds[current_augmentations, :, :].ndim == 2:
+                preds_std = np.std(val_preds[current_augmentations, :, :], axis=0)
+            elif val_preds[current_augmentations, :, :].ndim == 3:
+                stds_per_class = np.std(val_preds[current_augmentations, :, :], axis=0)
+                preds_std = np.mean(stds_per_class, axis=1)
+            roc_auc = roc_curve_UQ_method_computation(
+                [preds_std[k] for k in good_idx], 
+                [preds_std[j] for j in bad_idx]
+            )[2]
+            if roc_auc > 0.5 and roc_auc > best_second_metric:
+                best_second = new_i
+                best_second_metric = roc_auc
+        if best_second is not None:
+            best_group_indices.append(best_second)
+            print(f"Added next best policy {best_second} with roc_auc={best_second_metric:.4f}")
 
     return best_metric, best_group_indices, all_roc_aucs
     
@@ -767,7 +801,7 @@ def select_greedily_on_ens(
     val_preds = np.copy(all_preds[:, :search_set_len, :])
     with mp.Pool(processes=num_workers) as pool:
         initial_augmentations = [
-            np.random.choice(range(val_preds.shape[0])) for _ in range(num_searches)
+            int(np.random.choice(range(val_preds.shape[0]))) for _ in range(num_searches)
         ]
         try:
             results = pool.starmap(
@@ -779,7 +813,7 @@ def select_greedily_on_ens(
             print(f"val_preds shape: {val_preds.shape}")
             pool.close()
             pool.join()
-            raise e
+            
         finally:
             pool.close()
             pool.join()

@@ -53,12 +53,12 @@ def get_datasets(data_flag, download=True, random_seed=None, im_size=28, color=F
     return [train_dataset, val_dataset, test_dataset], info
 
 def get_dataloaders(datasets, batch_size=32, num_workers=20):
-    train_dataset, val_dataset, test_dataset = datasets
+    train_dataset, calib_dataset, test_dataset = datasets
     train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    val_loader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    calib_loader = DataLoader(dataset=calib_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-    return train_loader, val_loader, test_loader
+    return train_loader, calib_loader, test_loader
 
 
 def train(model, device, train_loader, optimizer, criterion, epoch):
