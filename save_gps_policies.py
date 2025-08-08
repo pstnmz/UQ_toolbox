@@ -6,30 +6,6 @@ from sklearn.model_selection import StratifiedKFold
 import numpy as np
 import torchvision.transforms as transforms
 
-
-def train_val_loaders(train_dataset, batch_size):
-    # Create stratified K-fold cross-validator
-    n_splits = 5
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
-
-    # Get the labels for stratification
-    labels = [label for _, label in train_dataset]
-
-    # Create a list to store the new dataloaders
-    train_loaders = []
-    val_loaders = []
-
-    for train_index, val_index in skf.split(np.zeros(len(labels)), labels):
-        train_subset = torch.utils.data.Subset(train_dataset, train_index)
-        val_subset = torch.utils.data.Subset(train_dataset, val_index)
-        
-        train_loader = DataLoader(dataset=train_subset, batch_size=batch_size, shuffle=True, drop_last=True)
-        val_loader = DataLoader(dataset=val_subset, batch_size=batch_size, shuffle=True, drop_last=True)
-        
-        train_loaders.append(train_loader)
-        val_loaders.append(val_loader)
-    return train_loaders, val_loaders
-
 dataflag = 'tissuemnist'
 color = False # True for color, False for grayscale
 activation = 'softmax'
