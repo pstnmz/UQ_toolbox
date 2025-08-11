@@ -59,13 +59,12 @@ def compute_shap_for_fold(fold, device_str, results, color, dataflag, size, batc
 if __name__ == '__main__':
     mp.set_start_method('spawn')
 
-    dataflag = 'organamnist'
-    color = False # True for color, False for grayscale
+    dataflag = 'bloodmnist'
+    color = True # True for color, False for grayscale
     activation = 'softmax'
     batch_size = 4000
     im_size = 224
     size = 224  # Image size for the models
-    batch_size = 4000  # Batch size for the DataLoader
 
     print(f"Processing {dataflag} with color={color} and activation={activation}")
     
@@ -78,7 +77,7 @@ if __name__ == '__main__':
     results = manager.dict()
 
     # Define the devices for each fold
-    devices = ['cuda:0', 'cuda:1', 'cuda:0', 'cuda:0', 'cuda:1']
+    devices = ['cuda:0', 'cuda:1', 'cuda:2', 'cuda:0', 'cuda:1']
 
     # Create processes for folds 0, 1, 2
     processes = []

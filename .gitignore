@@ -2,6 +2,5 @@
 **/savedpolicies_testset/
 **/gps_augment_breastmnist/
 **/gps_augment_breastmnist_testset/
-**/shap_results.pkl
-**/shap_results_calibration.pkl
+**/shap*
 **/medMNIST/gps_augment/

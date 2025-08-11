@@ -1022,33 +1022,35 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
     hook_handle = layer_to_be_hooked.register_forward_hook(hook)  # Attach hook
 
     # Collect features, labels, and predictions
-    background_images = []
     with torch.no_grad():
+        is_binary = None
         for batch in data_loader:
             if isinstance(batch, dict):
                 batch = (batch['image'], batch['label'])  # Convert to tuple
 
-            images = batch[0]  # Access the images using positional indexing
-            labels = batch[1].cpu().numpy()
-            all_labels.extend(labels)
+            images = batch[0].to(device, non_blocking=True)     # tensors on GPU
+            labels_t = batch[1].to(device, non_blocking=True)   # keep on GPU for compare
+            labels_np = labels_t.detach().cpu().numpy()
+            all_labels.extend(labels_np)
 
-            # Compute model predictions
-            images = images.to(device)
-            if len(np.unique(labels)) == 2:  # Binary classification
-                preds = F.sigmoid(model(images)).cpu().numpy()  # Apply sigmoid for binary classification
-            else:
-                preds = model(images).cpu().numpy()
-            if preds.shape[1] == 1:
-                predicted_classes = (preds > 0.5).astype(int)  # Convert to binary classification
-                # Track success (1) / failure (0)
-                success_flags.extend((predicted_classes == labels).astype(int))
-            else:
-                predicted_classes = np.argmax(np.array(F.softmax(torch.tensor(preds), dim=1)), axis=1)
-                # Track success (1) / failure (0)
-                success_flags.extend((predicted_classes == labels.ravel()).astype(int))
+            # Forward once
+            logits = model(images)
+            
+            # Decide binary vs multiclass once (first batch)
+            if is_binary is None:
+                is_binary = (logits.shape[1] == 1)
 
-            predictions.extend(preds)
-            background_images.append(images)
+            if is_binary:
+                probs = torch.sigmoid(logits).squeeze(1)        # [B]
+                preds_cls = (probs > 0.5).long()                # [B]
+                success_flags.extend((preds_cls == labels_t.long()).detach().cpu().numpy().astype(int))
+                predictions.extend(probs.detach().cpu().numpy())  # store probs
+            else:
+                probs = torch.softmax(logits, dim=1)            # [B, C]
+                preds_cls = probs.argmax(dim=1)                 # [B]
+                # labels may be shape [B,1]; squeeze for compare
+                success_flags.extend((preds_cls == labels_t.view(-1).long()).detach().cpu().numpy().astype(int))
+                predictions.extend(probs.detach().cpu().numpy())
 
     # Remove hook
     hook_handle.remove()
@@ -1057,7 +1059,6 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
     features = torch.cat(penultimate_features).cpu().detach()
     labels = np.array(all_labels)
     success_flags = np.array(success_flags)  # Convert to numpy array for easier manipulation
-    background_images = torch.cat(background_images)  # Combine all background images
     background_features = features.to(device)
 
     # Limit the number of background samples
