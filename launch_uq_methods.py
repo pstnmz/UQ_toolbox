@@ -24,6 +24,11 @@ from PIL import Image
 import umap.umap_ as umap
 from medMNIST.utils import train_load_datasets_resnet as tr
 
+# Add picklable callables
+class RepeatGrayToRGB:
+    def __call__(self, x):
+        return x.repeat(3, 1, 1)
+    
 def test_eval(test_loader, device, models, data_flag):
     info = INFO[data_flag]
     task_type = info['task']  # Determine the task type (binary-class or multi-class)
@@ -147,8 +152,8 @@ def train_val_loaders(train_dataset, batch_size):
         train_subset = torch.utils.data.Subset(train_dataset, train_index)
         val_subset = torch.utils.data.Subset(train_dataset, val_index)
         
-        train_loader = DataLoader(dataset=train_subset, batch_size=batch_size, shuffle=True, drop_last=True)
-        val_loader = DataLoader(dataset=val_subset, batch_size=batch_size, shuffle=True, drop_last=True)
+        train_loader = DataLoader(dataset=train_subset, batch_size=batch_size, shuffle=True, drop_last=False)
+        val_loader = DataLoader(dataset=val_subset, batch_size=batch_size, shuffle=True, drop_last=False)
         
         train_loaders.append(train_loader)
         val_loaders.append(val_loader)
@@ -430,10 +435,10 @@ def computeTTA(aug_type, models, test_dataset, device, num_classes=2, correct_pr
     
     return metric
 
-def display_UQ_results(metric, correct_predictions, incorrect_predictions, y_axis_title, title, optim_metric, swarmplot=False):
+def display_UQ_results(metric, correct_predictions, incorrect_predictions, y_axis_title, title, optim_metric, flag, swarmplot=False):
     balanced_acc = find_best_threshold_and_compute_metrics(metric, correct_predictions, optim_metric)
     fpr, tpr, auc = uq.roc_curve_UQ_method_computation([metric[k] for k in correct_predictions], [metric[j] for j in incorrect_predictions])
-    uq.UQ_method_plot([metric[k] for k in correct_predictions], [metric[j] for j in incorrect_predictions], y_axis_title, title, swarmplot)
+    uq.UQ_method_plot([metric[k] for k in correct_predictions], [metric[j] for j in incorrect_predictions], y_axis_title, title, flag, swarmplot)
     print(auc)
     return auc, balanced_acc
 
@@ -468,7 +473,8 @@ def call_UQ_methods(
     swarmplot=True,
     calib_method='temperature',
     batch_size=None,
-    image_size=None
+    image_size=None,
+    flag=None
 ):
     metrics = []
     methods = methods or []
@@ -485,73 +491,80 @@ def call_UQ_methods(
         if method == 'MSR':
             if y_prob is not None and y_true is not None and task_type is not None:
                 metric = computeMSR(y_prob, y_true, task_type, calibration_needed=False, display_calibration_curve=True)
-                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, y_axis, title, optim_metric=optim_metric, swarmplot=swarmplot)
+                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, y_axis, title, optim_metric=optim_metric, swarmplot=swarmplot, flag=flag)
                 aucs.append((method, auc))
                 balanced_acc.append((method, b_acc))
                 metrics.append((method, metric))
         elif method == 'MSR_temp_scale':
             if digits is not None and y_true is not None and task_type is not None and digits_calib is not None and y_true_calibration is not None:
                 metric = computeMSR(digits, y_true, task_type, calibration_needed=True, display_calibration_curve=True, method_calibration=calib_method, y_scores_calibration=digits_calib, y_true_calibration=y_true_calibration)
-                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, y_axis, title + ' after temperature scaling', optim_metric=optim_metric, swarmplot=swarmplot)
+                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, y_axis, title + ' after temperature scaling', optim_metric=optim_metric, swarmplot=swarmplot, flag=flag)
                 aucs.append((method, auc))
                 balanced_acc.append((method, b_acc))
                 metrics.append((method, metric))
         elif method == 'Ensembling':
             if indiv_scores is not None:
                 metric = compute_ensembling(indiv_scores)
-                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'std', 'Ensembling Results', optim_metric=optim_metric, swarmplot=swarmplot)
+                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'std', 'Ensembling Results', optim_metric=optim_metric, swarmplot=swarmplot, flag=flag)
                 aucs.append((method, auc))
                 balanced_acc.append((method, b_acc))
                 metrics.append((method, metric))
         elif method == 'TTA':
             if models is not None and test_dataset_tta is not None and device is not None:
                 metric = computeTTA('randaugment', models, test_dataset_tta, device, num_classes=num_classes, image_normalization=image_normalization, batch_size=batch_size, color=color)
-                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'std', 'TTA', optim_metric=optim_metric, swarmplot=swarmplot)
+                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'std', 'TTA', optim_metric=optim_metric, swarmplot=swarmplot, flag=flag)
                 aucs.append((method, auc))
                 balanced_acc.append((method, b_acc))
                 metrics.append((method, metric))
         elif method == 'TTA_without_geometric_transforms':
             if models is not None and test_dataset_tta is not None and device is not None:
                 metric = computeTTA('randaugment_without_geometric_transforms', models, test_dataset_tta, device, num_classes=num_classes, image_normalization=image_normalization, batch_size=batch_size, color=color)
-                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'std', 'TTA_no_geom_transforms', optim_metric=optim_metric, swarmplot=swarmplot)
+                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'std', 'TTA_no_geom_transforms', optim_metric=optim_metric, swarmplot=swarmplot, flag=flag)
                 aucs.append((method, auc))
                 balanced_acc.append((method, b_acc))
                 metrics.append((method, metric))
         elif method == 'GPS':
             if models is not None and test_dataset_tta is not None and device is not None:
                 metric = computeTTA('GPS', models, test_dataset_tta, device, num_classes=num_classes, correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration, image_normalization=image_normalization, aug_folder=aug_folder, max_iterations=max_iteration, gps_augment=gps_augment, im_size=image_size, batch_size=batch_size)
-                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'std', 'GPS', optim_metric=optim_metric, swarmplot=swarmplot)
+                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'std', 'GPS', optim_metric=optim_metric, swarmplot=swarmplot, flag=flag)
                 aucs.append((method, auc))
                 balanced_acc.append((method, b_acc))
                 metrics.append((method, metric))
         elif method == 'KNNshap':
             if models is not None and train_loaders is not None and test_loader is not None and device is not None and num_classes is not None and latent_spaces is not None and shap_values_folds is not None:
                 metric = computeKNNshap(models, train_loaders, test_loader, device, num_classes, latent_spaces, shap_values_folds, labels_folds=labels_fold, shap=True)
-                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'KNN distances after features selection', 'KNNshap', optim_metric=optim_metric, swarmplot=swarmplot)
+                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'KNN distances after features selection', 'KNNshap', optim_metric=optim_metric, swarmplot=swarmplot, flag=flag)
                 aucs.append((method, auc))
                 balanced_acc.append((method, b_acc))
                 metrics.append((method, metric))
         elif method == 'KNNall':
             if models is not None and train_loaders is not None and test_loader is not None and device is not None:
                 metric = computeKNNshap(models, train_loaders, test_loader, device, shap=False)
-                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'KNN distances', 'KNNall', optim_metric=optim_metric, swarmplot=swarmplot)
+                auc, b_acc = display_UQ_results(metric, correct_predictions, incorrect_predictions, 'KNN distances', 'KNNall', optim_metric=optim_metric, swarmplot=swarmplot, flag=flag)
                 aucs.append((method, auc))
                 balanced_acc.append((method, b_acc))
                 metrics.append((method, metric))
     return metrics, aucs, balanced_acc
 
-flags = ['pathmnist']
+flags = ['breastmnist', 'organamnist', 'pneumoniamnist', 'dermamnist', 'octmnist', 'pathmnist', 'bloodmnist', 'tissuemnist']
 calib_method = ['platt', 'temperature', 'platt', 'temperature', 'temperature', 'temperature', 'temperature', 'temperature']
-colors = [True]#, False, False, True, False, True, True, False]  # Colors for the flags
-activations = ['softmax']#, 'softmax', 'sigmoid', 'softmax', 'softmax', 'softmax', 'softmax', 'softmax']  # Output activations for each flag
+colors = [False, False, False, True, False, True, True, False]  # Colors for the flags
+activations = ['sigmoid', 'softmax', 'sigmoid', 'softmax', 'softmax', 'softmax', 'softmax', 'softmax']  # Output activations for each flag
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-uq_methods = ['GPS']#, 'KNNshap', 'KNNall']  
+uq_methods = ['MSR', 'MSR_temp_scale', 'Ensembling', 'TTA', 'GPS', 'KNNshap']#, 'KNNshap', 'KNNall']  
 size = 224  # Image size for the models
 batch_size = 4000  # Batch size for the DataLoader
 model_global_perfs = {}
 
 for flag, color, activation, calib_method in zip(flags, colors, activations, calib_method):
     print(f"Processing {flag} with color={color} and activation={activation}")
+    
+    with open(f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/shap/{size}*{size}/shap_results_calibration_{flag}.pkl', 'rb') as f:  # with statement avoids file leak
+        shap_results = pkl.load(f)
+        latent_spaces = shap_results['latent_spaces']
+        shap_values_folds = shap_results['shap_values_folds']
+        labels_fold = shap_results['success_folds']
+
     if color is True:
         transform = transforms.Compose([
             transforms.ToTensor(),
@@ -567,16 +580,16 @@ for flag, color, activation, calib_method in zip(flags, colors, activations, cal
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize(mean=[.5], std=[.5]),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+            RepeatGrayToRGB(),
         ])
         
         transform_tta = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+            RepeatGrayToRGB(),
             ])
     models = tr.load_models(flag, device=device)
-    [train_dataset, calibration_dataset, test_dataset], [train_loader, calibration_loader, test_loader], info = tr.load_datasets(flag, color, size, transform, batch_size)
-    train_loaders, val_loaders = train_val_loaders(train_dataset, batch_size=batch_size)
+    [train_dataset, calibration_dataset, test_dataset], [_, calibration_loader, test_loader], info = tr.load_datasets(flag, color, size, transform, batch_size)
+    train_loaders, _ = train_val_loaders(train_dataset, batch_size=batch_size)
     task_type = info['task']  # Determine the task type (binary-class or multi-class)
     num_classes = len(info['label'])  # Number of classes
     [_, calibration_dataset_tta, test_dataset_tta], [_, calibration_loader_tta, test_loader_tta], _ = tr.load_datasets(flag, color, size, transform_tta, batch_size)
@@ -603,12 +616,12 @@ for flag, color, activation, calib_method in zip(flags, colors, activations, cal
 
         correct_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] == np.argmax(y_scores_calibration[i])]
         incorrect_predictions_calibration = [i for i in range(len(y_true_calibration)) if y_true_calibration[i] != np.argmax(y_scores_calibration[i])]
-    uq_metrics, aucs, balanced_acc = call_UQ_methods(uq_methods, models, y_prob, digits, y_true, digits_calib, y_true_calibration, indiv_scores, task_type, correct_predictions, incorrect_predictions, test_loader, device, optim_metric='balanced_accuracy', train_loaders=train_loaders, test_dataset_tta=test_dataset_tta, num_classes=num_classes, image_normalization=True, swarmplot=False, calib_method=calib_method, batch_size=batch_size, color=color, aug_folder=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment/{size}*{size}/{flag}_calibration_set', correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration, image_size=size)
+    uq_metrics, aucs, balanced_acc = call_UQ_methods(uq_methods, models, y_prob, digits, y_true, digits_calib, y_true_calibration, indiv_scores, task_type, correct_predictions, incorrect_predictions, test_loader, device, optim_metric='balanced_accuracy', train_loaders=train_loaders, test_dataset_tta=test_dataset_tta, num_classes=num_classes, image_normalization=True, swarmplot=False, calib_method=calib_method, batch_size=batch_size, color=color, aug_folder=f'/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST/gps_augment/{size}*{size}/{flag}_calibration_set', correct_predictions_calibration=correct_predictions_calibration, incorrect_predictions_calibration=incorrect_predictions_calibration, image_size=size, latent_spaces=latent_spaces, shap_values_folds=shap_values_folds, labels_fold=labels_fold, flag=flag)
     model_global_perfs[flag] = {}
     model_global_perfs[flag]['class_perf'] = performances
     model_global_perfs[flag]['calibration_size'] = len(calibration_dataset)
     model_global_perfs[flag]['uq_metrics'] = uq_metrics
     model_global_perfs[flag]['aucs_UQ'] = aucs
     model_global_perfs[flag]['balanced_acc_UQ'] = balanced_acc
-with open("model_global_perfs_gps.pkl", "wb") as f:
+with open("model_global_perfs.pkl", "wb") as f:
     pkl.dump(model_global_perfs, f)

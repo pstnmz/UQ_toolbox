@@ -261,8 +261,11 @@ def apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m,
         for i in range(nb_augmentations):
             augmented_inputs_batch = []
             print(f"Applying augmentation n : {i}")
-            for subds in dataset.dataset.datasets:
-                subds.transform = augmentation
+            if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'datasets'):
+                for subds in dataset.dataset.datasets:
+                    subds.transform = transformations
+            else:
+                dataset.transform = transformations
             data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=72, pin_memory=True)
 
             for batch in data_loader:
@@ -553,7 +556,7 @@ def model_calibration_plot(true_labels, predictions, n_bins=20):
         plt.show()
 
 
-def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, swarmplot=True):
+def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, flag, swarmplot=True):
     """
     Plot a boxplot (and optionally a swarmplot) for uncertainty quantification (UQ) methods.
 
@@ -586,7 +589,7 @@ def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, s
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
     plt.show()
-    plt.savefig(f"{title}.png")  # or any filename you want
+    plt.savefig(f"{flag}_{title}.png")  # or any filename you want
     plt.close()
 
 def roc_curve_UQ_method_computation(correct_predictions, incorrect_predictions):
@@ -1030,8 +1033,10 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
 
             images = batch[0].to(device, non_blocking=True)     # tensors on GPU
             labels_t = batch[1].to(device, non_blocking=True)   # keep on GPU for compare
-            labels_np = labels_t.detach().cpu().numpy()
-            all_labels.extend(labels_np)
+            
+            # Flatten labels to [B]
+            labels_flat = labels_t.view(-1).long()
+            all_labels.extend(labels_flat.detach().cpu().numpy().tolist())
 
             # Forward once
             logits = model(images)
@@ -1043,13 +1048,13 @@ def extract_latent_space_and_compute_shap_importance(model, data_loader, device,
             if is_binary:
                 probs = torch.sigmoid(logits).squeeze(1)        # [B]
                 preds_cls = (probs > 0.5).long()                # [B]
-                success_flags.extend((preds_cls == labels_t.long()).detach().cpu().numpy().astype(int))
+                success_flags.extend((preds_cls == labels_flat).detach().cpu().numpy().astype(int).tolist())
                 predictions.extend(probs.detach().cpu().numpy())  # store probs
             else:
                 probs = torch.softmax(logits, dim=1)            # [B, C]
                 preds_cls = probs.argmax(dim=1)                 # [B]
                 # labels may be shape [B,1]; squeeze for compare
-                success_flags.extend((preds_cls == labels_t.view(-1).long()).detach().cpu().numpy().astype(int))
+                success_flags.extend((preds_cls == labels_flat).detach().cpu().numpy().astype(int).tolist())
                 predictions.extend(probs.detach().cpu().numpy())
 
     # Remove hook
@@ -1507,7 +1512,7 @@ def compute_knn_distances_to_train_data(model, train_loader, test_loader, layer,
         
         knn_distances_all[indices_test_filtered] = average_distances
         if num_classes == 2:
-            successes_all[indices_test_filtered] = success_test_filtered.squeeze(-1)
+            successes_all[indices_test_filtered] = success_test_filtered#.squeeze(-1)
         else:
             successes_all[indices_test_filtered] = success_test_filtered
 
