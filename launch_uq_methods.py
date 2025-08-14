@@ -469,7 +469,7 @@ def call_UQ_methods(
     color=False,
     aug_folder=None,
     gps_augment=None,
-    max_iteration=10,
+    max_iteration=5,
     swarmplot=True,
     calib_method='temperature',
     batch_size=None,
@@ -623,5 +623,5 @@ for flag, color, activation, calib_method in zip(flags, colors, activations, cal
     model_global_perfs[flag]['uq_metrics'] = uq_metrics
     model_global_perfs[flag]['aucs_UQ'] = aucs
     model_global_perfs[flag]['balanced_acc_UQ'] = balanced_acc
-with open("model_global_perfs.pkl", "wb") as f:
+with open("/mnt/data/psteinmetz/archive_notebooks/Documents/model_global_perfs.pkl", "wb") as f:
     pkl.dump(model_global_perfs, f)

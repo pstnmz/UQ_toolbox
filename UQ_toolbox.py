@@ -556,7 +556,7 @@ def model_calibration_plot(true_labels, predictions, n_bins=20):
         plt.show()
 
 
-def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, flag, swarmplot=True):
+def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, flag, swarmplot=False):
     """
     Plot a boxplot (and optionally a swarmplot) for uncertainty quantification (UQ) methods.
 
@@ -589,7 +589,7 @@ def UQ_method_plot(correct_predictions, incorrect_predictions, y_title, title, f
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
     plt.show()
-    plt.savefig(f"{flag}_{title}.png")  # or any filename you want
+    plt.savefig(f"/mnt/data/psteinmetz/archive_notebooks/Documents/medMNIST{flag}_{title}.png")  # or any filename you want
     plt.close()
 
 def roc_curve_UQ_method_computation(correct_predictions, incorrect_predictions):
