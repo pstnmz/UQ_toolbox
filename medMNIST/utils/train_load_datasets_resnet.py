@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader
 from torchvision import models, transforms
 from torch.nn.functional import sigmoid, softmax
 from torch.utils.data import DataLoader, ConcatDataset, random_split
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss
 from torchvision.models import resnet18, ResNet18_Weights
 import medmnist
 from medmnist import INFO
@@ -13,9 +14,23 @@ from torchvision.models import ResNet18_Weights
 import numpy as np
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, roc_auc_score
 from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import StratifiedKFold
 import seaborn as sns
 import random
 import numpy as np
+import os, json, time
+
+
+def _ensure_dir(d):
+    os.makedirs(d, exist_ok=True)
+
+def _save_json(obj, path):
+    with open(path, 'w') as f:
+        json.dump(obj, f, indent=2)
+
+def _append_log(path, text):
+    with open(path, 'a') as f:
+        f.write(text.rstrip() + '\n')
 
 
 def get_datasets(data_flag, download=True, random_seed=None, im_size=28, color=False, transform=None):
@@ -108,21 +123,44 @@ def validate(model, device, val_loader, criterion):
     return val_loss
 
 
-def train_resnet18(data_flag, num_epochs=10, batch_size=32, learning_rate=0.001, device=None, train_loader=None, val_loader=None, test_loader=None, color=False, im_size=224, transform=None):
+def train_resnet18(data_flag, num_epochs=10, batch_size=32, learning_rate=0.001, device=None,
+                   train_loader=None, val_loader=None, test_loader=None, color=False, im_size=224,
+                   transform=None, random_seed=None, output_dir=None, run_name="run"):
+        # Optional seeding
+    if random_seed is not None:
+        import random
+        np.random.seed(random_seed)
+        random.seed(random_seed)
+        torch.manual_seed(random_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(random_seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
     device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
-    dataloaders, info = load_datasets(data_flag, color, im_size, transform, batch_size)
-    if train_loader is None or val_loader is None or test_loader is None:
-        train_loader, val_loader, test_loader = dataloaders[0], dataloaders[1], dataloaders[2]
+    
+    # If loaders are not given, fall back to default dataset loading
+    datasets_and_loaders = load_datasets(data_flag, color, im_size, transform, batch_size)
+    if (train_loader is None) or (val_loader is None) or (test_loader is None):
+        _, (train_loader_fallback, calib_loader, test_loader_fallback), info = datasets_and_loaders
+        # Use fallback only if missing
+        train_loader = train_loader or train_loader_fallback
+        val_loader = val_loader or calib_loader
+        test_loader = test_loader or test_loader_fallback
+    else:
+        _, _, info = datasets_and_loaders  # keep info
 
     num_classes = len(info['label'])
+
     model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
-    # Modify the final fully connected layer to handle both binary and multiclass classification
+    in_features = model.fc.in_features
+
     if num_classes == 2:
-        model.fc = nn.Linear(model.fc.in_features, 1)  # Output 1 value for binary classification
-        criterion = nn.BCEWithLogitsLoss()  # Binary Cross Entropy with Logits Loss for binary classification
+            model.fc = torch.nn.Linear(in_features, 1)
+            criterion = BCEWithLogitsLoss()
     else:
-        model.fc = nn.Linear(model.fc.in_features, num_classes)  # Output logits for each class
-        criterion = nn.CrossEntropyLoss()  # Cross Entropy Loss for multiclass classification
+        model.fc = torch.nn.Linear(in_features, num_classes)
+        criterion = CrossEntropyLoss()
     model = model.to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -130,87 +168,165 @@ def train_resnet18(data_flag, num_epochs=10, batch_size=32, learning_rate=0.001,
 
     train_losses = []
     val_losses = []
+    epoch_times = []
+    if output_dir:
+        figs_dir = os.path.join(output_dir, "figs")
+        _ensure_dir(figs_dir)
+        log_path = os.path.join(output_dir, "metrics.log")
+        _append_log(log_path, f"=== {run_name} start: epochs={num_epochs}, lr={learning_rate} ===")
 
+    run_t0 = time.time()
     for epoch in range(num_epochs):
+        ep_t0 = time.time()
         train_loss = train(model, device, train_loader, optimizer, criterion, epoch)
         val_loss = validate(model, device, val_loader, criterion)
 
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+        
+        ep_dur = time.time() - ep_t0
+        epoch_times.append(ep_dur)
+        if output_dir:
+            _append_log(log_path, f"{run_name} epoch={epoch} train_loss={train_loss:.6f} val_loss={val_loss:.6f} epoch_time_s={ep_dur:.2f}")
 
-    # Plot training and validation losses
-    plt.figure(figsize=(10, 6))
-    plt.plot(range(1, num_epochs + 1), train_losses, label='Train Loss')
-    plt.plot(range(1, num_epochs + 1), val_losses, label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Losses')
-    plt.legend()
-    plt.show()
+        print(f"{run_name} | epoch {epoch}/{num_epochs} | train {train_loss:.4f} | val {val_loss:.4f}")
+    
+    total_train_time = time.time() - run_t0
+    # Save loss curve + history
+    if output_dir:
+        plt.figure(figsize=(8, 5))
+        plt.plot(range(1, num_epochs + 1), train_losses, label='Train Loss')
+        plt.plot(range(1, num_epochs + 1), val_losses, label='Val Loss')
+        plt.xlabel('Epoch'); plt.ylabel('Loss'); plt.title(f'Losses - {run_name}')
+        plt.legend(); plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "figs", f"loss_curve_{run_name}.png"), dpi=200)
+        plt.close()
 
-    evaluate_model(model, test_loader, data_flag, device)
-    return model
+        history = {"run_name": run_name, "train_losses": train_losses, "val_losses": val_losses, "epoch_times_sec": epoch_times, "total_train_sec": total_train_time}
+        _save_json(history, os.path.join(output_dir, f"history_{run_name}.json"))
+        _append_log(log_path, f"{run_name} total_train_sec={total_train_time:.2f}")
 
-def evaluate_model(model, test_loader, data_flag, device=None):
+
+    # Final test evaluation
+    eval_result = evaluate_model(model, test_loader, data_flag, device=device,
+                                 output_dir=output_dir, prefix=f"{run_name}_test")
+
+    return model, {
+        "run_name": run_name,
+        "history": {"train_losses": train_losses, "val_losses": val_losses, "epoch_times_sec": epoch_times},
+        "timing": {"total_train_sec": total_train_time},
+        "test": eval_result["metrics"],
+        "confusion_matrix": eval_result["confusion_matrix"]
+    }
+
+
+def evaluate_model(model, test_loader, data_flag, device=None, output_dir=None, prefix="test"):
     info = INFO[data_flag]
     device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # Check if the model is a list (for ensembling)
-    is_ensemble = isinstance(model, list)
+    class_names = list(info['label'].values())
+    num_classes = len(class_names)
+    is_binary = (num_classes == 2)
+
+    if output_dir:
+        figs_dir = os.path.join(output_dir, "figs")
+        _ensure_dir(figs_dir)
+        log_path = os.path.join(output_dir, "metrics.log")
+
+    # Normalize to list for ensemble averaging
+    models = model if isinstance(model, list) else [model]
+    for m in models:
+        m.eval()
 
     y_true = []
-    y_score = []
-    if is_ensemble:
-        for m in model:
-            m.eval()
-    else:
-        model.eval()
-
+    y_probs = []  # shape (N, C) for multiclass; (N, 1) for binary
+    t0_eval = time.time()  # timing start
     with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            if is_ensemble:
-                outputs = [m(data) for m in model]  # Collect predictions from all models
-                output = torch.mean(torch.stack(outputs), dim=0)  # Average predictions
-            else:
-                output = model(data)
-            
-            if len(np.unique(target.cpu().numpy())) == 2:  # Binary classification
-                output = sigmoid(output)  # Apply sigmoid for binary classification
-                y_score.extend(output.cpu().numpy().flatten())
-            else:
-                output = softmax(output, dim=1)
-                y_score.extend(output.cpu().numpy())
-            y_true.extend(target.cpu().numpy().flatten())
-            
-    y_true = np.array(y_true)
-    y_score = np.array(y_score)
+        for x, y in test_loader:
+            x = x.to(device)
+            y_true.append(y.numpy())
 
-    # Calculate metrics
-    if len(np.unique(y_true)) == 2:  # Binary classification
-        auc = roc_auc_score(y_true, y_score)
-        y_pred = (y_score > 0.5).astype(int)
-    else:  # Multiclass classification
-        auc = roc_auc_score(y_true, y_score, multi_class='ovr')
+            # collect per-model probabilities then average
+            probs_accum = []
+            for m in models:
+                logits = m(x)
+                if is_binary:
+                    p = sigmoid(logits).view(-1, 1)  # (B, 1)
+                else:
+                    p = softmax(logits, dim=1)       # (B, C)
+                probs_accum.append(p.detach().cpu().numpy())
+
+            probs_avg = np.mean(np.stack(probs_accum, axis=0), axis=0)  # (B, C) or (B, 1)
+            y_probs.append(probs_avg)
+
+    y_true = np.concatenate(y_true, axis=0)
+    y_probs = np.concatenate(y_probs, axis=0)
+
+    if is_binary:
+        y_score = y_probs.ravel()                         # (N,)
+        y_pred = (y_score >= 0.5).astype(int)
+    else:
+        y_score = y_probs                                 # (N, C)
         y_pred = np.argmax(y_score, axis=1)
 
+    eval_wall = time.time() - t0_eval
+    n_samples = int(len(y_true))
+
+    # Metrics
     acc = accuracy_score(y_true, y_pred)
     bal_acc = balanced_accuracy_score(y_true, y_pred)
+    try:
+        if is_binary:
+            auc = roc_auc_score(y_true, y_score)
+        else:
+            auc = roc_auc_score(y_true, y_score, multi_class='ovr', average='macro')
+    except Exception:
+        auc = float('nan')
 
-    print(f'Accuracy: {acc:.3f}')
-    print(f'Balanced Accuracy: {bal_acc:.3f}')
-    print(f'AUC: {auc:.3f}')
+    cm = confusion_matrix(y_true, y_pred, labels=list(range(num_classes)))
 
-    # Generate the confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
+    result = {
+        "data_flag": data_flag,
+        "num_classes": num_classes,
+        "class_names": class_names,
+        "is_ensemble": isinstance(model, list),
+        "metrics": {
+            "accuracy": acc,
+            "balanced_accuracy": bal_acc,
+            "auc": auc
+        },
+        "confusion_matrix": cm.tolist(),
+        "counts": {
+            "n_samples": int(len(y_true))
+        },
+        "timing": {
+            "eval_wall_sec": float(eval_wall),
+            "throughput_img_per_s": float(n_samples / eval_wall) if eval_wall > 0 else float('inf'),
+            "latency_ms_per_img": float(1000.0 * eval_wall / n_samples) if n_samples > 0 else float('nan')
+        }
+    }
 
-    # Plot the confusion matrix
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=info['label'].values(), yticklabels=info['label'].values())
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    plt.title('Confusion Matrix')
-    plt.show()
+    # Save confusion matrix figure
+    if output_dir:
+        plt.figure(figsize=(6, 5))
+        sns.heatmap(cm, annot=True, fmt="d", cbar=False,
+                    xticklabels=class_names, yticklabels=class_names)
+        plt.xlabel("Predicted")
+        plt.ylabel("True")
+        plt.title(f"Confusion Matrix ({prefix})")
+        plt.tight_layout()
+        cm_path = os.path.join(output_dir, "figs", f"confusion_matrix_{prefix}.png")
+        plt.savefig(cm_path, dpi=200)
+        plt.close()
+
+        # Save metrics JSON and append log
+        _save_json(result, os.path.join(output_dir, f"metrics_{prefix}.json"))
+        _append_log(log_path, f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {prefix} "
+                              f"acc={acc:.4f} bal_acc={bal_acc:.4f} auc={auc:.4f}")
+
+    # Minimal print
+    print(f"[{prefix}] acc={acc:.3f} bal_acc={bal_acc:.3f} auc={auc:.3f}")
+    return result
 
 def save_model(model, path):
     """
@@ -276,3 +392,29 @@ def load_datasets(dataflag, color, im_size, transform, batch_size):
     print(f'Calibration dataset size: {len(calibration_dataset)}')
     
     return [train_dataset, calibration_dataset, test_dataset], dataloaders, info
+
+def CV_train_val_loaders(train_dataset_aug, train_dataset_plain, batch_size, n_splits=5, seed=42):
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+
+    # Labels from the plain (non-augmented) view
+    labels = [label for _, label in train_dataset_plain]
+
+    train_loaders = []
+    val_loaders = []
+
+    for train_index, val_index in skf.split(np.zeros(len(labels)), labels):
+        if train_dataset_aug is not None:
+            # Augmented subset for training fold
+            train_subset = torch.utils.data.Subset(train_dataset_aug, train_index)
+        else:
+            # If no augmentation dataset is provided, use the plain dataset for training
+            train_subset = torch.utils.data.Subset(train_dataset_plain, train_index)
+        # Plain subset for validation fold
+        val_subset = torch.utils.data.Subset(train_dataset_plain, val_index)
+
+        train_loader = DataLoader(dataset=train_subset, batch_size=batch_size, shuffle=True, drop_last=True)
+        val_loader = DataLoader(dataset=val_subset, batch_size=batch_size, shuffle=False, drop_last=False)
+
+        train_loaders.append(train_loader)
+        val_loaders.append(val_loader)
+    return train_loaders, val_loaders
