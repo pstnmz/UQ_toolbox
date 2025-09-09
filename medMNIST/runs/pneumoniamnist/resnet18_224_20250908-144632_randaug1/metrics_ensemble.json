@@ -1,0 +1,32 @@
+{
+  "data_flag": "pneumoniamnist",
+  "num_classes": 2,
+  "class_names": [
+    "normal",
+    "pneumonia"
+  ],
+  "is_ensemble": true,
+  "metrics": {
+    "accuracy": 0.9375,
+    "balanced_accuracy": 0.9175213675213676,
+    "auc": 0.9938198553583169
+  },
+  "confusion_matrix": [
+    [
+      196,
+      38
+    ],
+    [
+      1,
+      389
+    ]
+  ],
+  "counts": {
+    "n_samples": 624
+  },
+  "timing": {
+    "eval_wall_sec": 1.7907416820526123,
+    "throughput_img_per_s": 348.45896884733753,
+    "latency_ms_per_img": 2.869778336622776
+  }
+}

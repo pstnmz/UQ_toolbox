@@ -85,9 +85,13 @@ def train(model, device, train_loader, optimizer, criterion, epoch):
         output = model(data)
         # Check the criterion type and adjust the target size accordingly
         if isinstance(criterion, nn.BCEWithLogitsLoss):
-            loss = criterion(output, target.float())  # Ensure target is float for BCEWithLogitsLoss
+            # Ensure both output and target are (N,1)
+            target_t = target.float().view(-1, 1)
+            loss = criterion(output, target_t)
         else:
-            loss = criterion(output, target.squeeze().long())  # Keep squeeze for other loss types
+            # CrossEntropyLoss: targets shape (N,)
+            target_t = target.view(-1).long()
+            loss = criterion(output, target_t)
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
@@ -104,19 +108,16 @@ def validate(model, device, val_loader, criterion):
         for data, target in val_loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
-            # Check the criterion type and adjust the target size accordingly
             if isinstance(criterion, nn.BCEWithLogitsLoss):
-                val_loss += criterion(output, target.float()).item()  # sum up batch loss
+                target_t = target.float().view(-1, 1)
+                val_loss += criterion(output, target_t).item()
+                pred = (output > 0).float()
+                correct += pred.eq(target_t).sum().item()
             else:
-                val_loss += criterion(output, target.squeeze().long()).item()  # sum up batch loss
-
-            # Adjust prediction logic based on the task type
-            if isinstance(criterion, nn.BCEWithLogitsLoss):
-                pred = (output > 0).float()  # Binary classification: threshold at 0 for logits
-                correct += pred.eq(target.view_as(pred)).sum().item()
-            else:
-                pred = output.argmax(dim=1, keepdim=True)  # Multiclass classification: argmax for class index
-                correct += pred.eq(target.view_as(pred)).sum().item()
+                target_t = target.view(-1).long()
+                val_loss += criterion(output, target_t).item()
+                pred = output.argmax(dim=1)
+                correct += (pred == target_t).sum().item()
 
     val_loss /= len(val_loader)  # Average loss per batch instead of per dataset
     print(f'\nValidation set: Average loss: {val_loss:.4f}, Accuracy: {correct}/{len(val_loader.dataset)} ({100. * correct / len(val_loader.dataset):.0f}%)\n')

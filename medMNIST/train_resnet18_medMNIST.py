@@ -7,17 +7,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os, json, time
 
-flags = ['breastmnist', 'organamnist', 'pneumoniamnist', 'dermamnist', 'octmnist', 'pathmnist', 'bloodmnist', 'tissuemnist']
-colors = [False, False, False, True, False, True, True, False]  # Colors for the flags
-batch_sizes = [32, 128, 128, 128, 640, 640, 640, 640]  # Batch sizes for the flags
-
+#flags = ['breastmnist', 'organamnist', 'pneumoniamnist', 'dermamnist', 'octmnist', 'pathmnist', 'bloodmnist', 'tissuemnist']
+flags = ['tissuemnist']  # Just run one for testing
+#colors = [False, False, False, True, False, True, True, False]  # Colors for the flags
+colors = [False]
+#batch_sizes = [32, 640, 128, 128, 640, 640, 640, 640]  # Batch sizes for the flags
+batch_sizes = [640]
+cuda = 'cuda:1'
 for flag, color, batch_size in zip(flags, colors, batch_sizes):
     print(f"Training on {flag} with color={color} and batch_size={batch_size}")
 
     use_randaugment = True         # <- enable/disable RandAugment here
     randaugment_ops = 2            # number of ops per image
     randaugment_mag = 9            # magnitude (0-10 typical)
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(cuda if torch.cuda.is_available() else 'cpu')
     size = 224  # Image size for the models
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -83,9 +86,9 @@ for flag, color, batch_size in zip(flags, colors, batch_sizes):
             train_loader=train_loaders[i],
             val_loader=val_loaders[i],
             test_loader=test_loader,
-            num_epochs=2,
+            num_epochs=4,
             learning_rate=0.0001,
-            device='cuda:0',
+            device=cuda,
             random_seed=42,
             output_dir=exp_dir,
             run_name=f"fold_{i}"
@@ -99,7 +102,7 @@ for flag, color, batch_size in zip(flags, colors, batch_sizes):
 
     # Evaluate ensemble and save
     ensemble_res = tr.evaluate_model(model=models, test_loader=test_loader, data_flag=flag,
-                                    device='cuda:0', output_dir=exp_dir, prefix="ensemble")
+                                    device=cuda, output_dir=exp_dir, prefix="ensemble")
     with open(os.path.join(exp_dir, "results_ensemble.json"), "w") as f:
         json.dump(ensemble_res, f, indent=2)
 

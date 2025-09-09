@@ -1,0 +1,41 @@
+=== fold_0 start: epochs=5, lr=0.0001 ===
+fold_0 epoch=0 train_loss=0.553561 val_loss=0.185601 epoch_time_s=57.13
+fold_0 epoch=1 train_loss=0.117415 val_loss=0.057849 epoch_time_s=56.27
+fold_0 epoch=2 train_loss=0.061660 val_loss=0.042246 epoch_time_s=53.42
+fold_0 epoch=3 train_loss=0.037433 val_loss=0.025550 epoch_time_s=52.49
+fold_0 epoch=4 train_loss=0.024659 val_loss=0.017470 epoch_time_s=51.39
+fold_0 total_train_sec=270.78
+[2025-09-08 14:26:11] fold_0_test acc=0.9589 bal_acc=0.9531 auc=0.9980
+=== fold_1 start: epochs=5, lr=0.0001 ===
+fold_1 epoch=0 train_loss=0.552776 val_loss=0.177947 epoch_time_s=55.17
+fold_1 epoch=1 train_loss=0.120356 val_loss=0.054249 epoch_time_s=53.37
+fold_1 epoch=2 train_loss=0.060904 val_loss=0.040969 epoch_time_s=51.59
+fold_1 epoch=3 train_loss=0.036409 val_loss=0.025406 epoch_time_s=54.52
+fold_1 epoch=4 train_loss=0.025895 val_loss=0.019866 epoch_time_s=52.53
+fold_1 total_train_sec=267.26
+[2025-09-08 14:31:12] fold_1_test acc=0.9607 bal_acc=0.9546 auc=0.9977
+=== fold_2 start: epochs=5, lr=0.0001 ===
+fold_2 epoch=0 train_loss=0.560356 val_loss=0.193250 epoch_time_s=52.46
+fold_2 epoch=1 train_loss=0.119926 val_loss=0.048240 epoch_time_s=52.04
+fold_2 epoch=2 train_loss=0.064015 val_loss=0.027505 epoch_time_s=52.66
+fold_2 epoch=3 train_loss=0.039885 val_loss=0.024492 epoch_time_s=52.36
+fold_2 epoch=4 train_loss=0.025432 val_loss=0.015018 epoch_time_s=52.04
+fold_2 total_train_sec=261.62
+[2025-09-08 14:36:07] fold_2_test acc=0.9672 bal_acc=0.9609 auc=0.9982
+=== fold_3 start: epochs=5, lr=0.0001 ===
+fold_3 epoch=0 train_loss=0.553629 val_loss=0.220379 epoch_time_s=55.11
+fold_3 epoch=1 train_loss=0.117422 val_loss=0.058246 epoch_time_s=52.23
+fold_3 epoch=2 train_loss=0.059618 val_loss=0.035138 epoch_time_s=52.78
+fold_3 epoch=3 train_loss=0.037916 val_loss=0.026333 epoch_time_s=55.17
+fold_3 epoch=4 train_loss=0.025203 val_loss=0.018000 epoch_time_s=53.05
+fold_3 total_train_sec=268.42
+[2025-09-08 14:41:09] fold_3_test acc=0.9596 bal_acc=0.9520 auc=0.9972
+=== fold_4 start: epochs=5, lr=0.0001 ===
+fold_4 epoch=0 train_loss=0.556042 val_loss=0.219791 epoch_time_s=52.45
+fold_4 epoch=1 train_loss=0.119392 val_loss=0.056143 epoch_time_s=52.06
+fold_4 epoch=2 train_loss=0.059742 val_loss=0.032017 epoch_time_s=52.08
+fold_4 epoch=3 train_loss=0.038621 val_loss=0.018936 epoch_time_s=52.29
+fold_4 epoch=4 train_loss=0.027490 val_loss=0.015016 epoch_time_s=53.15
+fold_4 total_train_sec=262.11
+[2025-09-08 14:46:04] fold_4_test acc=0.9655 bal_acc=0.9580 auc=0.9984
+[2025-09-08 14:46:29] ensemble acc=0.9674 bal_acc=0.9617 auc=0.9983
