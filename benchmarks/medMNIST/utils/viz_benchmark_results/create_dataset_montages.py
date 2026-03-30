@@ -20,7 +20,7 @@ import sys
 # Add parent directories to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dataset_utils import apply_random_corruptions
-from local_dermamnist_e import DermaMNIST_E
+from Benchmarks.medMNIST.utils.data_preprocessing_classification_evaluation.local_dermamnist_e import DermaMNIST_E
 
 
 def display_montage(dataset_name, shift='id', save_path=None):

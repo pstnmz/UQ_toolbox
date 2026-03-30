@@ -1175,7 +1175,6 @@ def create_sample_level_pairplots(workspace_root, output_dir):
             
             # Use PairGrid for consistency with lower-right plots
             df_plot = df_complete.sample(frac=1, random_state=42).reset_index(drop=True)
-            print(method_cols)
             g_corner = sns.PairGrid(
                 df_plot,
                 vars=method_cols,
@@ -1413,11 +1412,12 @@ def create_combined_pairplot(shift_dataframe_a, shift_dataframe_b, output_dir, s
         print("  Insufficient methods")
         return
     
-    # Sort alphabetically, but put Mean Agg at the end
-    all_methods = sorted(all_methods)
-    if 'Mean Agg' in all_methods:
-        all_methods.remove('Mean Agg')
-        all_methods.append('Mean Agg')
+    # # Sort alphabetically, but put Mean Agg at the end
+    # all_methods = sorted(all_methods)
+    # if 'Mean Agg' in all_methods:
+    #     all_methods.remove('Mean Agg')
+    #     all_methods.append('Mean Agg')
+    all_methods = ['MSR', 'MSR-S', 'MLS', 'TTA', 'GPS', 'MCD', 'KNN', 'Mean Agg']
     
     print(f"  All methods ({len(all_methods)}): {', '.join(all_methods)}")
     print(f"  {shift_a_name} samples: {len(df_a)}, {shift_b_name} samples: {len(df_b)}")

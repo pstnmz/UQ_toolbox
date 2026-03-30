@@ -7,7 +7,7 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss
 from torchvision.models import resnet18, ResNet18_Weights, vit_b_16, ViT_B_16_Weights
 import medmnist
 from medmnist import INFO
-from .local_dermamnist_e import DERMAMNIST_E_INFO
+from .data_preprocessing_classification_evaluation.local_dermamnist_e import DERMAMNIST_E_INFO
 import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.optim as optim

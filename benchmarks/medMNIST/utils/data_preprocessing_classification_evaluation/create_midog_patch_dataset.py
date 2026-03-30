@@ -2,7 +2,7 @@
 Extract 224x224 patches from MIDOG++ dataset images.
 Creates non-overlapping patches from each image in the dataset.
 
-CRITICAL: Resolution matching for cross-dataset comparison
+Resolution matching for cross-dataset comparison
 ---------------------------------------------------------
 PathMNIST patches: 224×224 at 0.5 µm/px → 112 µm × 112 µm physical area
 MIDOG++ images: typically at 0.23-0.25 µm/px → need resampling to 0.5 µm/px

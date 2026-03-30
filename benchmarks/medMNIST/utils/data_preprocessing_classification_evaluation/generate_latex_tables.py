@@ -11,10 +11,10 @@ from collections import defaultdict
 import numpy as np
 
 # Reuse the same directory and dataset definitions
-ID_DIR = Path("uq_benchmark_results/full_results/in_distribution")
-CS_DIR = Path("uq_benchmark_results/full_results/corruption_shifts")
-PS_DIR = Path("uq_benchmark_results/full_results/population_shifts")
-NCS_DIR = Path("uq_benchmark_results/full_results/new_class_shifts")
+ID_DIR = Path("Benchmarks/medMNIST/results/full_results/in_distribution")
+CS_DIR = Path("Benchmarks/medMNIST/results/full_results/corruption_shifts")
+PS_DIR = Path("Benchmarks/medMNIST/results/full_results/population_shifts")
+NCS_DIR = Path("Benchmarks/medMNIST/results/full_results/new_class_shifts")
 
 DATASETS_ID = {
     "dermamnist-e-id": "DermaMNIST",
@@ -49,9 +49,9 @@ UQ_METHODS = {
     "GPS": ["GPS"],
     "KNN": ["KNN_Raw"],
     "MCD": ["MCDropout"],
-    "Mean Agg": ["Mean_Aggregation"],
+    "Mean Agg": ["ZScore_Aggregation_per_fold"],
     "DE": ["Ensembling"],
-    "Mean Agg+Ens": ["Mean_Aggregation_Ensemble"]
+    "Mean Agg+Ens": ["ZScore_Aggregation_ensemble"]
 }
 
 
