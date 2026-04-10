@@ -1,6 +1,6 @@
 # FailCatcher
 
-**FailCatcher** is a uncertainty quantification (UQ) toolkit for PyTorch classification deep learning models, developed and benchmarked on medical imaging datasets from the [MedMNIST](https://medmnist.com/) collection and external test sets.
+**FailCatcher** is a uncertainty quantification (UQ) toolkit for PyTorch classification deep learning models, developed and benchmarked on medical imaging datasets from the [MedMNIST](https://medmnist.com/) collection and external test sets. Failure detection benchmark results can be found in the [benchmarks README](benchmarks/README.md). Related publication to come soon !
 
 The project provides:
 - A reusable Python library (`ToolBox/`) implementing multiple UQ methods with a clean, unified API.
