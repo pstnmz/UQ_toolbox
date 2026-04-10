@@ -1,28 +1,13 @@
 # Failure Detection Benchmark in classification — medMNIST
 
-This directory contains the full reproducible benchmarking pipeline for evaluating uncertainty quantification methods on MedMNIST datasets + external test sets. As well as the obtained results. Publication to come soon !
-
-<img width="4365" height="3639" alt="Sans titre (1)" src="https://github.com/user-attachments/assets/0a0577cf-b418-40d6-8f20-657d08e14065" />
-Benchmark pipeline. A: Eight MedMNIST datasets used (224*224) and 4 applied shifts for failure detection evaluation (In-Distribution, Corruption, Population and New-Class shifts), B: Training datasets size and class imbalance, C: For each MedMNIST dataset, 2 backbones trained (ViT and ResNet18) under 4 different setups (+/- data augmentation and dropout regularization) with 5-fold cross-validation training. 8 confidence scoring functions and 2 aggregation methods evaluated across all 160 different configurations (backbone + training setup + modality + distribution shift).
-
----
-
-## Results
-<img width="3928" height="3214" alt="id_cs_auroc_f_radars_with_histograms_mean (2)" src="https://github.com/user-attachments/assets/ba4af309-025a-4c7d-9252-6425d6c7a58c" />
-AUROC-F results across all datasets and training setups (S=Standard, DA=Data Augmentation, DO=Dropout Layers, DADO=DA+DO). Results are shown for two backbones (left: ResNet18, right: ViT) under in-distribution (first row: ID) and corruption-shift (second row: CS) evaluations. Mean radar-value histograms $\pm$ standard deviations across backbones and data shifts are displayed in the center.
-
-<img width="3969" height="3238" alt="id_cs_augrc_radars_with_histograms_mean (1)" src="https://github.com/user-attachments/assets/1fa2dea5-6789-4d42-8e0a-14f7330bf9c2" />
-AUGRC results across all datasets and training setups (S=Standard, DA=Data Augmentation, DO=Dropout Layers, DADO=DA+DO). Results are shown for two backbones (left: ResNet18, right: ViT) under in-distribution (top: ID) and corruption-shift (bottom: CS) evaluations. Mean radar-value histograms $\pm$ standard deviations across backbones and data shifts are displayed in the center.
-
-<img width="3947" height="3188" alt="ncs_ps_combined_radars_with_histograms_mean (2)" src="https://github.com/user-attachments/assets/a2af44a0-5b31-418f-a435-b52fe6672011" />
-AUROC-F (top) and AUGRC (bottom) results across all datasets and training setups (S=Standard, DA=Data Augmentation, DO=Dropout Layers). Results are shown for two backbones (left: ResNet18, right: ViT) for population shifts (PS, "amos2022" and "derma-e-external" datasets) and new-class shifts (NCS, "new-class amos2022", "new-class midog++")) evaluation. Mean radar-value histograms $\pm$ standard deviations across backbones and data shifts are displayed in the center.
-
-<img width="4901" height="5894" alt="per_method_correlation_all_shifts" src="https://github.com/user-attachments/assets/c26a2ec1-2f5b-4fd1-9cd4-a18b26c6d2f2" />
-Scoring function AUROC-F correlation with classification balanced accuracy (over all configurations: training setup + backbone + dataset) across failure sources
+This directory contains the full reproducible benchmarking pipeline for evaluating uncertainty quantification methods on MedMNIST datasets + external test sets. As well as the obtained results. Publication to come soon!
 
 ---
 
 ## Table of contents
+
+- [Overview](#overview)
+- [Results](#results)
 
 1. [Environment setup](#1-environment-setup)
 2. [Data](#2-data)
@@ -40,6 +25,34 @@ Scoring function AUROC-F correlation with classification balanced accuracy (over
    - [GPS pre-computation (TTA_calib)](#43-gps-pre-computation)
 5. [Results and outputs](#5-results-and-outputs)
 6. [Reproducibility notes](#6-reproducibility-notes)
+
+---
+
+## Overview
+
+<img width="4365" height="3639" alt="Sans titre (1)" src="https://github.com/user-attachments/assets/0a0577cf-b418-40d6-8f20-657d08e14065" />
+
+*Benchmark pipeline. **A:** Eight MedMNIST datasets used (224×224) and 4 applied shifts for failure detection evaluation (In-Distribution, Corruption, Population and New-Class shifts). **B:** Training datasets size and class imbalance. **C:** For each MedMNIST dataset, 2 backbones trained (ViT and ResNet18) under 4 different setups (+/- data augmentation and dropout regularization) with 5-fold cross-validation training. 8 confidence scoring functions and 2 aggregation methods evaluated across all 160 different configurations (backbone + training setup + modality + distribution shift).*
+
+---
+
+## Results
+
+<img width="3928" height="3214" alt="id_cs_auroc_f_radars_with_histograms_mean (2)" src="https://github.com/user-attachments/assets/ba4af309-025a-4c7d-9252-6425d6c7a58c" />
+
+*AUROC-F results across all datasets and training setups (S=Standard, DA=Data Augmentation, DO=Dropout Layers, DADO=DA+DO). Results are shown for two backbones (left: ResNet18, right: ViT) under in-distribution (first row: ID) and corruption-shift (second row: CS) evaluations. Mean radar-value histograms ± standard deviations across backbones and data shifts are displayed in the center.*
+
+<img width="3969" height="3238" alt="id_cs_augrc_radars_with_histograms_mean (1)" src="https://github.com/user-attachments/assets/1fa2dea5-6789-4d42-8e0a-14f7330bf9c2" />
+
+*AUGRC results across all datasets and training setups (S=Standard, DA=Data Augmentation, DO=Dropout Layers, DADO=DA+DO). Results are shown for two backbones (left: ResNet18, right: ViT) under in-distribution (top: ID) and corruption-shift (bottom: CS) evaluations. Mean radar-value histograms ± standard deviations across backbones and data shifts are displayed in the center.*
+
+<img width="3947" height="3188" alt="ncs_ps_combined_radars_with_histograms_mean (2)" src="https://github.com/user-attachments/assets/a2af44a0-5b31-418f-a435-b52fe6672011" />
+
+*AUROC-F (top) and AUGRC (bottom) results across all datasets and training setups (S=Standard, DA=Data Augmentation, DO=Dropout Layers). Results are shown for two backbones (left: ResNet18, right: ViT) for population shifts (PS, "amos2022" and "derma-e-external" datasets) and new-class shifts (NCS, "new-class amos2022", "new-class midog++") evaluation. Mean radar-value histograms ± standard deviations across backbones and data shifts are displayed in the center.*
+
+<img width="4901" height="5894" alt="per_method_correlation_all_shifts" src="https://github.com/user-attachments/assets/c26a2ec1-2f5b-4fd1-9cd4-a18b26c6d2f2" />
+
+*Scoring function AUROC-F correlation with classification balanced accuracy (over all configurations: training setup + backbone + dataset) across failure sources.*
 
 ---
 
