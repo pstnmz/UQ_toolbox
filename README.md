@@ -136,3 +136,12 @@ Tested with **Python 3.12** and the following key packages:
 | shap | 0.46.0 |
 | matplotlib | 3.10.0 |
 | seaborn | 0.13.2 |
+
+## License
+
+This project is licensed under CC BY-NC-SA 4.0.
+
+The code is intended for research and academic use only.
+Commercial use is prohibited.
+
+For commercial use, please contact the author.
