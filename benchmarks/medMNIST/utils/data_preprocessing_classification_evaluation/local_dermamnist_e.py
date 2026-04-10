@@ -110,14 +110,14 @@ class DermaMNIST_E(MedMNIST):
                 imgs = imgs[id_mask]
                 labels = labels[id_mask]
                 self.test_centers = self.test_centers[id_mask]
-                print(f"  Using ID test centers: {len(imgs)} samples")
+                print(f" Using ID test centers: {len(imgs)} samples")
             elif test_subset == 'external':
                 # External center only
                 ext_mask = self.test_centers == 'external'
                 imgs = imgs[ext_mask]
                 labels = labels[ext_mask]
                 self.test_centers = self.test_centers[ext_mask]
-                print(f"  Using external test center: {len(imgs)} samples")
+                print(f" Using external test center: {len(imgs)} samples")
             # else: test_subset == 'all', use all samples
         else:
             self.test_centers = None

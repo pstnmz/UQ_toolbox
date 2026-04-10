@@ -244,7 +244,7 @@ def generate_all_commands(
     for dataset in datasets:
         # Skip new_class_shift for datasets that don't support it
         if new_class_shift and dataset not in DATASETS_NEW_CLASS_SHIFT:
-            print(f"⚠️  Skipping {dataset}: new_class_shift only supported for {DATASETS_NEW_CLASS_SHIFT}")
+            print(f"[WARNING] Skipping {dataset}: new_class_shift only supported for {DATASETS_NEW_CLASS_SHIFT}")
             continue
             
         for model in models:
@@ -253,7 +253,7 @@ def generate_all_commands(
                 methods = get_methods_for_setup(setup, exclude_methods)
                 
                 if not methods:
-                    print(f"⚠️  Skipping {dataset}/{model}/{setup or 'standard'}: no compatible methods")
+                    print(f"[WARNING] Skipping {dataset}/{model}/{setup or 'standard'}: no compatible methods")
                     continue
                 
                 cmd = generate_command(
@@ -307,23 +307,23 @@ def run_commands(commands: List[Dict], dry_run: bool = False, verbose: bool = Tr
     print(f"{'='*80}\n")
     
     if dry_run:
-        print("🔍 DRY RUN MODE - Commands will not be executed\n")
+        print("DRY RUN MODE - Commands will not be executed\n")
     
     for idx, cmd_dict in enumerate(commands, 1):
         config = cmd_dict['config']
         command = cmd_dict['command']
         
         print(f"\n[{idx}/{total}] Running configuration:")
-        print(f"  Dataset: {config['dataset']}")
-        print(f"  Model: {config['model']}")
-        print(f"  Setup: {config['setup']}")
-        print(f"  Methods ({config['num_methods']}): {', '.join(config['methods'])}")
+        print(f" Dataset: {config['dataset']}")
+        print(f" Model: {config['model']}")
+        print(f" Setup: {config['setup']}")
+        print(f" Methods ({config['num_methods']}): {', '.join(config['methods'])}")
         if config.get('new_class_shift'):
-            print(f"  Mode: New class shift evaluation")
+            print(f" Mode: New class shift evaluation")
         print(f"\n  Command: {command}\n")
         
         if dry_run:
-            print("  ⏭️  Skipped (dry run)\n")
+            print(" Skipped (dry run)\n")
             continue
         
         try:
@@ -334,12 +334,12 @@ def run_commands(commands: List[Dict], dry_run: bool = False, verbose: bool = Tr
                 capture_output=not verbose,
                 text=True
             )
-            print(f"  ✓ Completed successfully\n")
+            print(f" Completed successfully\n")
         except subprocess.CalledProcessError as e:
-            print(f"  ❌ Failed with exit code {e.returncode}")
+            print(f" [ERROR] Failed with exit code {e.returncode}")
             if not verbose and e.stderr:
-                print(f"  Error output:\n{e.stderr}")
-            print(f"  Continuing to next configuration...\n")
+                print(f" Error output:\n{e.stderr}")
+            print(f" Continuing to next configuration...\n")
             continue
     
     print(f"\n{'='*80}")
@@ -475,7 +475,7 @@ def main():
     # Validate paths
     script_path = Path(args.script)
     if not script_path.exists():
-        print(f"❌ Error: Script not found at {script_path}")
+        print(f"[ERROR] Error: Script not found at {script_path}")
         sys.exit(1)
     
     # Generate commands
@@ -496,7 +496,7 @@ def main():
     )
     
     if not commands:
-        print("❌ No valid configurations to run")
+        print("[ERROR] No valid configurations to run")
         sys.exit(1)
     
     # Execute

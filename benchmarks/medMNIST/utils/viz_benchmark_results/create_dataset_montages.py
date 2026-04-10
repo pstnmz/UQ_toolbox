@@ -53,7 +53,7 @@ def display_montage(dataset_name, shift='id', save_path=None):
         if not midog_path.exists():
             raise FileNotFoundError(f"MIDOG++ patches not found at {midog_path}")
         
-        print(f"  Loading MIDOG++ from: {midog_path}")
+        print(f" Loading MIDOG++ from: {midog_path}")
         data = np.load(str(midog_path), allow_pickle=True)
         images = data['images']  # (N, 224, 224, 3) uint8 RGB
         
@@ -84,12 +84,12 @@ def display_montage(dataset_name, shift='id', save_path=None):
         
         if amos_path is None:
             raise FileNotFoundError(
-                "❌ AMOS dataset not found or is a Git LFS pointer.\n"
+                " AMOS dataset not found or is a Git LFS pointer.\n"
                 "   Please run: git lfs pull\n"
                 f"   Checked paths: {[str(p) for p in possible_paths]}"
             )
         
-        print(f"  Loading AMOS from: {amos_path}")
+        print(f" Loading AMOS from: {amos_path}")
         data = np.load(str(amos_path), allow_pickle=True)
         images = data['test_images']
         labels = data['test_labels']  # (N, 15) one-hot encoded
@@ -104,9 +104,9 @@ def display_montage(dataset_name, shift='id', save_path=None):
             
             if mask.sum() > 0:
                 images = images[mask]
-                print(f"    PS: Filtered to {mask.sum()} mapped class samples (6 organs in OrganAMNIST)")
+                print(f" PS: Filtered to {mask.sum()} mapped class samples (6 organs in OrganAMNIST)")
             else:
-                print(f"    ⚠️  No mapped class samples found!")
+                print(f" No mapped class samples found!")
         
         elif shift == 'ncs':
             # Filter for new/unseen classes (unmapped AMOS organs)
@@ -118,9 +118,9 @@ def display_montage(dataset_name, shift='id', save_path=None):
             
             if mask.sum() > 0:
                 images = images[mask]
-                print(f"    NCS: Filtered to {mask.sum()} new/unseen class samples (9 novel organs)")
+                print(f" NCS: Filtered to {mask.sum()} new/unseen class samples (9 novel organs)")
             else:
-                print(f"    ⚠️  No new class samples found!")
+                print(f" No new class samples found!")
         
         # Select 3 random images
         indices = np.random.choice(len(images), min(3, len(images)), replace=False)
@@ -132,7 +132,7 @@ def display_montage(dataset_name, shift='id', save_path=None):
         
         # Apply corruption if needed
         if shift == 'cs':
-            print(f"  Applying medMNIST-C corruptions to dermamnist (ID centers)...")
+            print(f" Applying medMNIST-C corruptions to dermamnist (ID centers)...")
             dataset = apply_random_corruptions(dataset, 'dermamnist', severity=4, cache=False, seed=None, return_pil=False)
         
         indices = np.random.choice(len(dataset), 3, replace=False)
@@ -161,7 +161,7 @@ def display_montage(dataset_name, shift='id', save_path=None):
         
         # Apply medMNIST-C corruption if needed
         if shift == 'cs':
-            print(f"  Applying medMNIST-C corruptions to {dataset_name}...")
+            print(f" Applying medMNIST-C corruptions to {dataset_name}...")
             # Use severity=4 (max supported by medmnistc) and remove seed for varied corruptions each run
             dataset = apply_random_corruptions(dataset, dataset_name, severity=4, cache=False, seed=None, return_pil=False)
         
@@ -538,7 +538,7 @@ def generate_all_montages(output_dir='uq_benchmark_results/figures/dataset_monta
     print(f"Generating {' and '.join(montage_desc)} montages...")
     for dataset_name, shifts in datasets_shifts.items():
         for shift in shifts:
-            print(f"  {dataset_name} - {shift}")
+            print(f" {dataset_name} - {shift}")
             
             # Generate 3x1 montage
             if generate_3x1:
@@ -614,7 +614,7 @@ if __name__ == "__main__":
             fig = display_montage(dataset, shift)
             output_file = output_dir / f'{dataset}_{shift}_3x1.png'
             fig.savefig(output_file, dpi=100, bbox_inches=None, pad_inches=0)
-            print(f"✓ Saved 3x1 montage to: {output_file} (224x672 pixels)")
+            print(f" Saved 3x1 montage to: {output_file} (224x672 pixels)")
             plt.close(fig)
         
         # Generate square montage
@@ -623,7 +623,7 @@ if __name__ == "__main__":
             total_pixels = 224 * square_size
             output_file = output_dir / f'{dataset}_{shift}_{square_size}x{square_size}.png'
             fig.savefig(output_file, dpi=100, bbox_inches=None, pad_inches=0)
-            print(f"✓ Saved {square_size}x{square_size} montage to: {output_file} ({total_pixels}x{total_pixels} pixels)")
+            print(f" Saved {square_size}x{square_size} montage to: {output_file} ({total_pixels}x{total_pixels} pixels)")
             plt.close(fig)
             
     elif len(sys.argv) == 1 or len(sys.argv) == 2:
@@ -638,17 +638,17 @@ if __name__ == "__main__":
         generate_all_montages(montage_type=montage_type, square_size=square_size)
     else:
         print("Usage:")
-        print("  python create_dataset_montages.py [montage_type]                      # Generate all")
-        print("  python create_dataset_montages.py <dataset> <shift> [montage_type]    # Generate one")
+        print(" python create_dataset_montages.py [montage_type]                      # Generate all")
+        print(" python create_dataset_montages.py <dataset> <shift> [montage_type]    # Generate one")
         print("")
         print("Montage types: 3x1 (224x672px), NxN (e.g., 4x4=896x896px, 8x8=1792x1792px), both (3x1+4x4)")
         print("")
         print("Examples:")
-        print("  python create_dataset_montages.py 8x8                    # Generate 8x8 for all datasets")
-        print("  python create_dataset_montages.py organamnist id 16x16   # Generate 16x16 for one dataset")
-        print("  python create_dataset_montages.py both                   # Generate 3x1 and 4x4 for all")
+        print(" python create_dataset_montages.py 8x8                    # Generate 8x8 for all datasets")
+        print(" python create_dataset_montages.py organamnist id 16x16   # Generate 16x16 for one dataset")
+        print(" python create_dataset_montages.py both                   # Generate 3x1 and 4x4 for all")
         print("")
         print("Datasets: organamnist, amos2022, dermamnist-e-id, dermamnist-e-ext,")
-        print("          pathmnist, tissuemnist, breastmnist, pneumoniamnist, octmnist, bloodmnist, midog")
+        print(" pathmnist, tissuemnist, breastmnist, pneumoniamnist, octmnist, bloodmnist, midog")
         print("Shifts: id, cs, ps, ncs")
         sys.exit(1)

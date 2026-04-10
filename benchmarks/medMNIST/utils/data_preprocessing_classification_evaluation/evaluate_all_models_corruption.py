@@ -77,7 +77,7 @@ def evaluate_models_with_cache(models, test_loader, data_flag, device, cache_pat
     """
     # Check if cache exists
     if os.path.exists(cache_path):
-        print(f"  ✓ Loading predictions from cache: {cache_path}")
+        print(f" Loading predictions from cache: {cache_path}")
         cache = np.load(cache_path, allow_pickle=True)
         
         y_true = cache['y_true']
@@ -114,7 +114,7 @@ def evaluate_models_with_cache(models, test_loader, data_flag, device, cache_pat
         
         # Per-fold metrics
         per_fold_metrics = []
-        print(f"  🔍 Per-fold predictions diversity (from cache):")
+        print(f" Per-fold predictions diversity (from cache):")
         for fold_idx in range(indiv_scores.shape[1]):
             fold_scores = indiv_scores[:, fold_idx, :]  # [N, C]
             fold_pred = np.argmax(fold_scores, axis=1)
@@ -124,11 +124,11 @@ def evaluate_models_with_cache(models, test_loader, data_flag, device, cache_pat
             
             # Debug: Check prediction distribution
             unique_preds, pred_counts = np.unique(fold_pred, return_counts=True)
-            print(f"    Fold {fold_idx}: acc={fold_acc:.4f}, pred_distribution={dict(zip(unique_preds, pred_counts))}")
+            print(f" Fold {fold_idx}: acc={fold_acc:.4f}, pred_distribution={dict(zip(unique_preds, pred_counts))}")
             if fold_idx == 0:  # Show sample scores for first fold
-                print(f"      Sample scores [0]: {fold_scores[0]}")
-                print(f"      Sample scores [1]: {fold_scores[1]}")
-                print(f"      Score mean per class: {fold_scores.mean(axis=0)}")
+                print(f" Sample scores [0]: {fold_scores[0]}")
+                print(f" Sample scores [1]: {fold_scores[1]}")
+                print(f" Score mean per class: {fold_scores.mean(axis=0)}")
             
             # AUC
             if num_classes == 2:
@@ -155,10 +155,10 @@ def evaluate_models_with_cache(models, test_loader, data_flag, device, cache_pat
         }
     
     # No cache - evaluate models and create cache
-    print(f"  ⚙️  Evaluating models (no cache found)...")
+    print(f" Evaluating models (no cache found)...")
     
     # Use evaluate_model for ensemble (already handles binary/multi-class, ensemble averaging, etc.)
-    print(f"  📊 Evaluating ensemble...")
+    print(f" Evaluating ensemble...")
     ensemble_result = evaluate_model(
         model=models,  # Pass list for ensemble
         test_loader=test_loader,
@@ -182,7 +182,7 @@ def evaluate_models_with_cache(models, test_loader, data_flag, device, cache_pat
     }
     
     # Evaluate each fold individually to get per-fold metrics AND predictions
-    print(f"  📊 Evaluating individual folds...")
+    print(f" Evaluating individual folds...")
     per_fold_metrics = []
     
     # We need to collect predictions manually for caching purposes
@@ -275,7 +275,7 @@ def evaluate_models_with_cache(models, test_loader, data_flag, device, cache_pat
         per_fold_metrics.append(fold_metrics)
     
     # Save predictions to cache
-    print(f"  💾 Saving predictions to cache: {cache_path}")
+    print(f" Saving predictions to cache: {cache_path}")
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     np.savez_compressed(
         cache_path,
@@ -325,9 +325,9 @@ def evaluate_dataset_with_corruption(dataset_name, model_backbone, setup, corrup
             dataset_name = 'dermamnist-e'
         models = load_models(dataset_name, device=device, size=224, 
                            model_backbone=model_backbone, setup=setup)
-        print(f"  ✓ Loaded {len(models)} models")
+        print(f" Loaded {len(models)} models")
     except Exception as e:
-        print(f"  ✗ Failed to load models: {e}")
+        print(f" Failed to load models: {e}")
         return None
     
     # Load dataset
@@ -342,16 +342,16 @@ def evaluate_dataset_with_corruption(dataset_name, model_backbone, setup, corrup
             dataset_name, color, im_size=224, 
             transform=transform_test, batch_size=batch_size
         )
-        print(f"  ✓ Loaded test dataset: {len(test_dataset)} samples")
+        print(f" Loaded test dataset: {len(test_dataset)} samples")
     except Exception as e:
-        print(f"  ✗ Failed to load dataset: {e}")
+        print(f" Failed to load dataset: {e}")
         return None
     if 'dermamnist' in dataset_name:
         dataset_name_for_corruption = 'dermamnist'
     else:
         dataset_name_for_corruption = dataset_name
     # Apply corruption
-    print(f"  🔬 Applying random corruptions (severity={corruption_severity})...")
+    print(f" Applying random corruptions (severity={corruption_severity})...")
     test_dataset_corrupted = dataset_utils.apply_random_corruptions(
         test_dataset, dataset_name_for_corruption, corruption_severity, 
         cache=True, seed=42
@@ -447,10 +447,10 @@ def main():
     print(f"COMPREHENSIVE CORRUPTION EVALUATION")
     print(f"{'='*80}")
     print(f"Total configurations: {total_configs}")
-    print(f"  Datasets: {len(datasets)}")
-    print(f"  Models: {len(model_backbones)}")
-    print(f"  Setups: {len(setups)}")
-    print(f"  Corruption Severities: {len(corruption_severities)}")
+    print(f" Datasets: {len(datasets)}")
+    print(f" Models: {len(model_backbones)}")
+    print(f" Setups: {len(setups)}")
+    print(f" Corruption Severities: {len(corruption_severities)}")
     print(f"{'='*80}\n")
     
     # Iterate through all configurations
@@ -486,12 +486,12 @@ def main():
                             with open(result_path, 'w') as f:
                                 json.dump(results, f, indent=2)
                             
-                            print(f"  ✓ Saved: {result_filename}")
+                            print(f" Saved: {result_filename}")
                         else:
-                            print(f"  ✗ Evaluation failed")
+                            print(f" Evaluation failed")
                             
                     except Exception as e:
-                        print(f"  ✗ Error: {e}")
+                        print(f" Error: {e}")
                         import traceback
                         traceback.print_exc()
     

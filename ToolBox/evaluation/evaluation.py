@@ -196,7 +196,7 @@ def compute_augrc(uncertainties, predictions, labels, num_bins=1000, correct_idx
         correct_idx = np.where(~errors.astype(bool))[0]
         incorrect_idx = np.where(errors.astype(bool))[0]
     
-    # Compute accuracy from indices from indices
+    # Compute accuracy from error count and sample count
     acc = 1.0 - (n_errors / n_samples)
     error_rate = n_errors / n_samples
     
@@ -578,7 +578,7 @@ def plot_risk_coverage_curve(uncertainties, predictions, labels, ax=None,
     if save_path:
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"✓ Saved risk-coverage curves to {save_path}")
+        print(f"Saved risk-coverage curves to {save_path}")
     
     return fig, (ax1, ax2)
 
@@ -731,7 +731,7 @@ def plot_roc_curve_failure_prediction(uncertainties, predictions, labels,
     if save_path:
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"✓ Saved ROC curve to {save_path}")
+        print(f"Saved ROC curve to {save_path}")
     
     return fig
 
@@ -959,7 +959,7 @@ def plot_uncertainty_distributions(uncertainties, predictions, labels,
     if save_path:
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"✓ Saved uncertainty distributions to {save_path}")
+        print(f"Saved uncertainty distributions to {save_path}")
     
     return fig
 

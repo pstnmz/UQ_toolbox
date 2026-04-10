@@ -53,7 +53,7 @@ def main():
             if 'organamnist' in dataset_key:
                 new_key = f"1_ID_{dataset_key}"
                 model_results[new_key] = methods
-                print(f"  Added from ID: {new_key} ({len(methods)} methods)")
+                print(f" Added from ID: {new_key} ({len(methods)} methods)")
     
     # Add corruption shift results (organamnist only) - prefix with "2_CS_"
     if 'resnet18' in cs_results:
@@ -61,7 +61,7 @@ def main():
             if 'organamnist' in dataset_key:
                 new_key = f"2_CS_{dataset_key}"
                 model_results[new_key] = methods
-                print(f"  Added from CS: {new_key} ({len(methods)} methods)")
+                print(f" Added from CS: {new_key} ({len(methods)} methods)")
     
     # Add population shift results (amos2022 only) - prefix with "3_PS_"
     if 'resnet18' in ps_results:
@@ -69,7 +69,7 @@ def main():
             if 'amos' in dataset_key.lower():
                 new_key = f"3_PS_{dataset_key}"
                 model_results[new_key] = methods
-                print(f"  Added from PS: {new_key} ({len(methods)} methods)")
+                print(f" Added from PS: {new_key} ({len(methods)} methods)")
     
     # Add new class shift results (amos2022 only) - prefix with "4_NCS_"
     if 'resnet18' in ncs_results:
@@ -77,7 +77,7 @@ def main():
             if 'amos' in dataset_key.lower():
                 new_key = f"4_NCS_{dataset_key}"
                 model_results[new_key] = methods
-                print(f"  Added from NCS: {new_key} ({len(methods)} methods)")
+                print(f" Added from NCS: {new_key} ({len(methods)} methods)")
     
     print(f"\nTotal configurations loaded: {len(model_results)}")
     print(f"Dataset keys: {sorted(model_results.keys())}")
@@ -121,9 +121,9 @@ def main():
             if not np.isnan(mean_agg):
                 model_results[prefixed_key]['Mean_Aggregation'] = mean_agg
                 agg_success += 1
-                print(f"  ✓ {prefixed_key}: Mean_Agg = {mean_agg:.3f}")
+                print(f" {prefixed_key}: Mean_Agg = {mean_agg:.3f}")
             else:
-                print(f"  ✗ {prefixed_key}: Mean_Agg = NaN (shift={shift_type})")
+                print(f" {prefixed_key}: Mean_Agg = NaN (shift={shift_type})")
             
             # Ensemble Mean Aggregation
             mean_agg_ens = compute_mean_aggregation_metric(
@@ -135,7 +135,7 @@ def main():
                 model_results[prefixed_key]['Mean_Aggregation_Ensemble'] = mean_agg_ens
                 agg_ens_success += 1
         except Exception as e:
-            print(f"  ✗ {prefixed_key}: Error - {e}")
+            print(f" {prefixed_key}: Error - {e}")
     
     print(f"\n  Total: {agg_success}/16 Mean_Aggregation, {agg_ens_success}/16 Mean_Aggregation_Ensemble")
     
@@ -175,12 +175,12 @@ def main():
             if prefix in current_text:
                 # Hide the label by making it invisible
                 text_obj.set_visible(False)
-                print(f"  Hidden label: '{current_text}'")
+                print(f" Hidden label: '{current_text}'")
                 break
         # Also hide if it's just the cleaned dataset name
         if current_text.lower() in ['organa', 'organamnist', 'amos2022', 'amos']:
             text_obj.set_visible(False)
-            print(f"  Hidden label: '{current_text}'")
+            print(f" Hidden label: '{current_text}'")
     
     # Add family labels (ID, CS, PS, NCS) to show which shift type each group belongs to
     # Calculate the center angle for each family based on the dataset grouping
@@ -250,7 +250,7 @@ def main():
     output_path = output_dir / 'organamnist_amos_radar_resnet18.png'
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"\n✓ Saved: {output_path}")
+    print(f"\n Saved: {output_path}")
     plt.close()
     
     print("=" * 80)

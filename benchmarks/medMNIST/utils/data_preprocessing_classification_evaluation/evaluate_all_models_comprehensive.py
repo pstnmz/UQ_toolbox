@@ -155,7 +155,7 @@ def evaluate_dataset_setup(dataset, model_name, setup, device, output_dir):
         num_classes = len(info['label'])
         task = info['task']
     except KeyError:
-        print(f"  Error: Dataset {load_flag} not found in INFO")
+        print(f" Error: Dataset {load_flag} not found in INFO")
         return None
     
     # Determine if color or grayscale
@@ -171,13 +171,13 @@ def evaluate_dataset_setup(dataset, model_name, setup, device, output_dir):
             model_backbone=model_name,
             setup=setup
         )
-        print(f"  ✓ Loaded {len(models)} models")
+        print(f" Loaded {len(models)} models")
     except FileNotFoundError as e:
-        print(f"  Error: {e}")
+        print(f" Error: {e}")
         return None
     
     # Load test data
-    print(f"  Loading test data (subset: {test_subset})...")
+    print(f" Loading test data (subset: {test_subset})...")
     
     # Prepare transform
     if color:
@@ -203,7 +203,7 @@ def evaluate_dataset_setup(dataset, model_name, setup, device, output_dir):
                 batch_size=3500,
                 workspace_root=repo_root
             )
-            print(f"  ✓ Loaded AMOS test data: {len(test_loader.dataset)} samples")
+            print(f" Loaded AMOS test data: {len(test_loader.dataset)} samples")
         else:
             datasets_list, dataloaders, _ = load_datasets(
                 dataflag=load_flag,
@@ -215,9 +215,9 @@ def evaluate_dataset_setup(dataset, model_name, setup, device, output_dir):
                 test_subset=test_subset
             )
             _, _, test_loader = dataloaders
-            print(f"  ✓ Loaded test data: {len(test_loader.dataset)} samples")
+            print(f" Loaded test data: {len(test_loader.dataset)} samples")
     except Exception as e:
-        print(f"  Error loading test data: {e}")
+        print(f" Error loading test data: {e}")
         return None
     
     # Evaluate per-fold
@@ -225,7 +225,7 @@ def evaluate_dataset_setup(dataset, model_name, setup, device, output_dir):
     per_fold_results = []
     
     for fold_idx, model in enumerate(models):
-        print(f"    Fold {fold_idx}...", end=" ")
+        print(f" Fold {fold_idx}...", end=" ")
         
         result = evaluate_single_fold(model, test_loader, load_flag, device)
         metrics = result['metrics']
@@ -237,7 +237,7 @@ def evaluate_dataset_setup(dataset, model_name, setup, device, output_dir):
     print(f"\n  Evaluating ensemble...")
     ensemble_result = evaluate_ensemble_models(models, test_loader, load_flag, device)
     ensemble_metrics = ensemble_result['metrics']
-    print(f"    Ensemble: acc={ensemble_metrics['accuracy']:.4f}, oracle_augrc={ensemble_metrics['oracle_augrc']:.6f}")
+    print(f" Ensemble: acc={ensemble_metrics['accuracy']:.4f}, oracle_augrc={ensemble_metrics['oracle_augrc']:.6f}")
     
     # Compile results
     results = {
@@ -272,7 +272,7 @@ def evaluate_dataset_setup(dataset, model_name, setup, device, output_dir):
     with open(output_path, 'w') as f:
         json.dump(results, f, indent=2)
     
-    print(f"\n  ✓ Saved results to: {output_path}")
+    print(f"\n   Saved results to: {output_path}")
     
     return results
 
@@ -336,8 +336,8 @@ def main():
                         failed_evaluations.append((dataset, model_name, setup))
                 
                 except Exception as e:
-                    print(f"\n  ✗ FAILED: {dataset} | {model_name} | {setup}")
-                    print(f"    Error: {e}")
+                    print(f"\n   FAILED: {dataset} | {model_name} | {setup}")
+                    print(f" Error: {e}")
                     failed_evaluations.append((dataset, model_name, setup))
                     continue
     
@@ -351,7 +351,7 @@ def main():
     if failed_evaluations:
         print(f"\nFailed:")
         for dataset, model, setup in failed_evaluations:
-            print(f"  - {dataset} | {model} | {setup or 'standard'}")
+            print(f" - {dataset} | {model} | {setup or 'standard'}")
     
     # Create summary file
     summary = {
@@ -369,8 +369,8 @@ def main():
     with open(summary_path, 'w') as f:
         json.dump(summary, f, indent=2)
     
-    print(f"\n✓ Summary saved to: {summary_path}")
-    print(f"✓ All results saved in: {output_dir}")
+    print(f"\n Summary saved to: {summary_path}")
+    print(f" All results saved in: {output_dir}")
 
 
 if __name__ == '__main__':

@@ -78,10 +78,10 @@ def parse_results_directory(results_dir='./', metric='auroc_f'):
                 
                 results[model_backbone][dataset_key][method_name] = float(value)
             
-            print(f"  Loaded: {model_backbone} - {dataset_key} ({len(methods_data)} methods)")
+            print(f" Loaded: {model_backbone} - {dataset_key} ({len(methods_data)} methods)")
         
         except Exception as e:
-            print(f"  ⚠️  Failed to parse {json_file.name}: {e}")
+            print(f" Failed to parse {json_file.name}: {e}")
     
     return dict(results)
 
@@ -290,7 +290,7 @@ def create_radar_plot_on_axis(ax, model_results, model_name, runs_dir=None, metr
         return
     
     # ZScore aggregation methods are loaded from JSON files.
-    print(f"  Using ZScore aggregation values from JSON files")
+    print(f" Using ZScore aggregation values from JSON files")
     
     # Get all unique methods across datasets
     all_methods = set()
@@ -301,11 +301,11 @@ def create_radar_plot_on_axis(ax, model_results, model_name, runs_dir=None, metr
     all_methods.insert(7, all_methods.pop(8))
     
     print(f"\nCreating radar plot for {model_name}")
-    print(f"  Datasets: {num_datasets}")
-    print(f"  Methods: {len(all_methods)}")
-    print(f"  Dataset order: {dataset_keys[:5]}... (showing first 5)")
-    print(f"  Dataset families found: {sorted(dataset_families.keys())}")
-    print(f"  Preferred order: {preferred_order}")
+    print(f" Datasets: {num_datasets}")
+    print(f" Methods: {len(all_methods)}")
+    print(f" Dataset order: {dataset_keys[:5]}... (showing first 5)")
+    print(f" Dataset families found: {sorted(dataset_families.keys())}")
+    print(f" Preferred order: {preferred_order}")
     
     # Cluster setups from same dataset with smaller angles
     # Allocate space per dataset family, then subdivide for setups
@@ -379,9 +379,9 @@ def create_radar_plot_on_axis(ax, model_results, model_name, runs_dir=None, metr
     num_angle_points = len(angles)
     angles = angles + [angles[0]]  # Complete the circle
     
-    print(f"  Angle range: {min(angles):.2f} to {max(angles):.2f} radians")
-    print(f"  Families: {len(family_names)}")
-    print(f"  Angle points (before close): {num_angle_points}, dataset_keys: {num_datasets}")
+    print(f" Angle range: {min(angles):.2f} to {max(angles):.2f} radians")
+    print(f" Families: {len(family_names)}")
+    print(f" Angle points (before close): {num_angle_points}, dataset_keys: {num_datasets}")
     
     # Color map for methods
     colors = plt.cm.tab20(np.linspace(0, 1, len(all_methods)))
@@ -656,7 +656,7 @@ def generate_summary_table(results, output_path):
                 for method_name, auroc in sorted(dataset_data.items()):
                     writer.writerow([model_name, dataset_key, method_name, f"{auroc:.4f}"])
     
-    print(f"\n✓ Summary table saved to {output_path}")
+    print(f"\n Summary table saved to {output_path}")
 
 
 def compute_mean_aggregation_metric(results_dir, dataset_key, model_name, metric='auroc_f', aggregation='mean', shift='in_distribution', use_ensemble=False):
@@ -954,7 +954,7 @@ def compute_mean_aggregation_metric(results_dir, dataset_key, model_name, metric
         
     except Exception as e:
         import traceback
-        print(f"    Warning: Could not compute mean aggregation for {dataset_key}: {e}")
+        print(f" Warning: Could not compute mean aggregation for {dataset_key}: {e}")
         traceback.print_exc()
         return np.nan
 
@@ -996,8 +996,8 @@ def aggregate_uq_methods(npz_path, aggregation='mean', methods=None, output_path
         raise ValueError(f"No valid methods found in {npz_path}. Available: {method_keys}")
     
     print(f"\nAggregating UQ methods from: {npz_path}")
-    print(f"  Methods to aggregate: {methods}")
-    print(f"  Aggregation strategy: {aggregation}")
+    print(f" Methods to aggregate: {methods}")
+    print(f" Aggregation strategy: {aggregation}")
     
     # Z-score normalize each method
     z_scores = {}
@@ -1011,14 +1011,14 @@ def aggregate_uq_methods(npz_path, aggregation='mean', methods=None, output_path
         std = np.std(uncertainties)
         
         if std == 0:
-            print(f"  Warning: {method_name} has zero std, skipping")
+            print(f" Warning: {method_name} has zero std, skipping")
             continue
         
         z_score = (uncertainties - mean) / std
         z_scores[method_name] = z_score
         normalized_arrays.append(z_score)
         
-        print(f"  {method_name}: mean={mean:.4f}, std={std:.4f}")
+        print(f" {method_name}: mean={mean:.4f}, std={std:.4f}")
     
     if not normalized_arrays:
         raise ValueError("No valid methods after normalization")
@@ -1039,8 +1039,8 @@ def aggregate_uq_methods(npz_path, aggregation='mean', methods=None, output_path
     else:
         raise ValueError(f"Unknown aggregation: {aggregation}. Use 'mean', 'max', 'min', or 'vote'")
     
-    print(f"  Aggregated shape: {aggregated.shape}")
-    print(f"  Aggregated range: [{aggregated.min():.4f}, {aggregated.max():.4f}]")
+    print(f" Aggregated shape: {aggregated.shape}")
+    print(f" Aggregated range: [{aggregated.min():.4f}, {aggregated.max():.4f}]")
     
     result = {
         'aggregated': aggregated,
@@ -1059,7 +1059,7 @@ def aggregate_uq_methods(npz_path, aggregation='mean', methods=None, output_path
             methods_used=result['methods_used'],
             aggregation=aggregation
         )
-        print(f"  ✓ Saved to {output_path}")
+        print(f" Saved to {output_path}")
     
     return result
 
@@ -1140,10 +1140,10 @@ def main(aggregation='mean', shift='corruption_shifts'):
                 shift_results_dir = results_dir / 'jsons_results' / shift_type
                 
                 if not shift_results_dir.exists():
-                    print(f"  Warning: Directory not found: {shift_results_dir}")
+                    print(f" Warning: Directory not found: {shift_results_dir}")
                     continue
                 
-                print(f"  Loading from: {shift_results_dir}")
+                print(f" Loading from: {shift_results_dir}")
                 
                 # Parse results for this shift type
                 auroc_results = parse_results_directory(shift_results_dir, metric='auroc_f')
@@ -1155,7 +1155,7 @@ def main(aggregation='mean', shift='corruption_shifts'):
                 }
             
             if not shift_results:
-                print(f"  ERROR: No results found for {group['title']}")
+                print(f" ERROR: No results found for {group['title']}")
                 continue
         else:
             # Combine results from all shifts in this group - for NCS/PS combined display
@@ -1166,10 +1166,10 @@ def main(aggregation='mean', shift='corruption_shifts'):
                 shift_results_dir = results_dir / 'jsons_results' / shift_type
                 
                 if not shift_results_dir.exists():
-                    print(f"  Warning: Directory not found: {shift_results_dir}")
+                    print(f" Warning: Directory not found: {shift_results_dir}")
                     continue
                 
-                print(f"  Loading from: {shift_results_dir}")
+                print(f" Loading from: {shift_results_dir}")
                 
                 # Parse results for this shift type
                 auroc_results = parse_results_directory(shift_results_dir, metric='auroc_f')
@@ -1187,7 +1187,7 @@ def main(aggregation='mean', shift='corruption_shifts'):
                     combined_augrc[model_name].update(augrc_results[model_name])
             
             if not combined_auroc and not combined_augrc:
-                print(f"  ERROR: No results found for {group['title']}")
+                print(f" ERROR: No results found for {group['title']}")
                 continue
         
         model_names = ['resnet18', 'vit_b_16']
@@ -1225,8 +1225,8 @@ def main(aggregation='mean', shift='corruption_shifts'):
                     model_results = results[model_name]
                     
                     print(f"\n  {'='*76}")
-                    print(f"  Generating {shift_type.upper()} plot for {model_name}...")
-                    print(f"  {'='*76}")
+                    print(f" Generating {shift_type.upper()} plot for {model_name}...")
+                    print(f" {'='*76}")
                     
                     # Get comp_eval_dir for this shift
                     comp_eval_dir = workspace_root / 'benchmarks' / 'medMNIST' / 'utils' / 'comprehensive_evaluation_results' / shift_type
@@ -1272,8 +1272,8 @@ def main(aggregation='mean', shift='corruption_shifts'):
                 model_results = results[model_name]
                 
                 print(f"\n  {'='*76}")
-                print(f"  Generating combined PS+NCS plot for {model_name}...")
-                print(f"  {'='*76}")
+                print(f" Generating combined PS+NCS plot for {model_name}...")
+                print(f" {'='*76}")
                 
                 # Use the first shift type for display parameters
                 plot_shift = group['shifts'][0]
@@ -1317,7 +1317,7 @@ def main(aggregation='mean', shift='corruption_shifts'):
         # Save combined figure with group-specific name
         output_path = output_dir / f'radar_plots_{group["name"].lower()}_{aggregation}.png'
         fig.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"\n  ✓ Plot saved to {output_path}")
+        print(f"\n   Plot saved to {output_path}")
         
         plt.close(fig)
         
@@ -1333,7 +1333,7 @@ def main(aggregation='mean', shift='corruption_shifts'):
             generate_summary_table(combined_auroc if combined_auroc else combined_augrc, summary_path)
     
     print("\n" + "=" * 80)
-    print("✓ All plots generated successfully!")
+    print(" All plots generated successfully!")
     print("=" * 80)
 
 
@@ -1393,7 +1393,7 @@ def create_rank_radar_plot_on_axis(ax, ranked_results, model_name, aggregation='
     num_datasets = len(dataset_keys)
     
     if num_datasets == 0:
-        print(f"  No datasets found for {model_name}")
+        print(f" No datasets found for {model_name}")
         return None, None
     
     # Get all unique methods
@@ -1402,7 +1402,7 @@ def create_rank_radar_plot_on_axis(ax, ranked_results, model_name, aggregation='
         all_methods.update(dataset_data.keys())
     all_methods = sorted(all_methods)
     
-    print(f"  Plotting {len(all_methods)} methods across {num_datasets} datasets (ranks)")
+    print(f" Plotting {len(all_methods)} methods across {num_datasets} datasets (ranks)")
     
     # Calculate angles for datasets (with grouped spacing)
     angles = []
@@ -1531,14 +1531,14 @@ def create_rank_radar_plot_on_axis(ax, ranked_results, model_name, aggregation='
     # Add dataset family names
     label_position = 12.5
     
-    print(f"  DEBUG: Adding {len(family_names)} family labels at radius {label_position}")
+    print(f" DEBUG: Adding {len(family_names)} family labels at radius {label_position}")
     for angle, name in zip(family_angles, family_names):
         # Add subtle background box for family names
         angle_positive = angle % (2 * np.pi)  # Ensure positive angle
         # Remove 'mnist' suffix for cleaner display
         display_name = name.replace('mnist', '')
         
-        print(f"    Family: {name} -> {display_name}, angle: {np.degrees(angle_positive):.1f}°")
+        print(f" Family: {name} -> {display_name}, angle: {np.degrees(angle_positive):.1f}°")
         
         # Custom angular adjustment for specific datasets to avoid overlap
         custom_angle = angle_positive
@@ -1568,7 +1568,7 @@ def create_rank_radar_plot_on_axis(ax, ranked_results, model_name, aggregation='
         elif name == 'pathmnist':
             custom_angle = angle_positive - 0.25
         
-        print(f"      -> Adjusted angle: {np.degrees(custom_angle):.1f}°")
+        print(f" -> Adjusted angle: {np.degrees(custom_angle):.1f}°")
             
         # For ranks, use consistent label_position for all datasets
         ax.text(custom_angle, label_position, display_name, 

@@ -63,14 +63,14 @@ def compute_metric_means(results_dict, metric='auroc_f'):
         results = results_dict.get(shift_key, {})
         
         if not results:
-            print(f"  ⚠ No results for {shift_key}")
+            print(f" No results for {shift_key}")
             continue
         
         all_means[shift_key] = {}
         
         for model_name in model_names:
             if model_name not in results:
-                print(f"  ⚠ No {model_name} results for {shift_key}")
+                print(f" No {model_name} results for {shift_key}")
                 continue
             
             model_results = results[model_name]
@@ -84,7 +84,7 @@ def compute_metric_means(results_dict, metric='auroc_f'):
             # Get all dataset keys
             dataset_keys = list(model_results.keys())
             
-            print(f"  {shift_key}/{model_name}: {len(dataset_keys)} datasets, {len(all_methods)} methods")
+            print(f" {shift_key}/{model_name}: {len(dataset_keys)} datasets, {len(all_methods)} methods")
             
             # Compute mean values and std for each method
             method_means = {}
@@ -116,7 +116,7 @@ def compute_metric_means(results_dict, metric='auroc_f'):
                 f'{metric}_std': method_stds
             }
     
-    print(f"✓ Computed means for {len(all_means)} shift types")
+    print(f" Computed means for {len(all_means)} shift types")
     return all_means
 
 
@@ -245,7 +245,7 @@ def create_radar_figure(results_auroc, results_augrc, metric='auroc_f', aggregat
         results = results_map.get(shift_key, {})
         
         if not results:
-            print(f"  ⚠ No results for {shift_key}")
+            print(f" No results for {shift_key}")
             continue
         
         # Get comprehensive evaluation directory
@@ -268,7 +268,7 @@ def create_radar_figure(results_auroc, results_augrc, metric='auroc_f', aggregat
             ax = radar_axes[ax_idx]
             
             if model_name not in results:
-                print(f"  ⚠ No {model_name} results for {shift_key}")
+                print(f" No {model_name} results for {shift_key}")
                 continue
             
             model_results = results[model_name]
@@ -415,7 +415,7 @@ def create_combined_radar_histogram_figure_id_cs(results_auroc, results_augrc, a
             
             # Handle case where no data is available
             if result is None:
-                print(f"  ⚠ No data returned for {model_name}/{shift_key}/{metric}")
+                print(f" No data returned for {model_name}/{shift_key}/{metric}")
                 continue
             
             handles, labels, method_surfaces, method_angles = result
@@ -684,7 +684,7 @@ def create_combined_radar_histogram_figure_ncs_ps(results_auroc, results_augrc, 
     combined_results_augrc = results_augrc.get('population', {})
     
     if not combined_results_auroc and not combined_results_augrc:
-        print(f"  Warning: No population (NCS+PS) results found")
+        print(f" Warning: No population (NCS+PS) results found")
         return None
     
     # Create figure with 2 rows × 3 columns (matching ID+CS layout)
@@ -755,7 +755,7 @@ def create_combined_radar_histogram_figure_ncs_ps(results_auroc, results_augrc, 
             
             # Handle case where no data is available
             if result is None:
-                print(f"  ⚠ No data returned for {model_name}/population/{metric_key}")
+                print(f" No data returned for {model_name}/population/{metric_key}")
                 continue
             
             handles, labels, method_surfaces, method_angles = result
@@ -810,7 +810,7 @@ def create_combined_radar_histogram_figure_ncs_ps(results_auroc, results_augrc, 
     shift_data = all_means.get('population', {})
     
     if not shift_data:
-        print("  Warning: No population mean data for histogram")
+        print(" Warning: No population mean data for histogram")
     else:
         # Get data for both models
         resnet_data = shift_data.get('resnet18', {})
@@ -1264,7 +1264,7 @@ def main(aggregation='mean'):
     
     output_path = output_dir / f'id_cs_auroc_f_radars_with_histograms_{aggregation}.png'
     fig_id_cs_auroc.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"\n✓ Saved ID+CS AUROC_f to {output_path}")
+    print(f"\n Saved ID+CS AUROC_f to {output_path}")
     plt.close(fig_id_cs_auroc)
     
     # Figure 1: ID+CS AUGRC
@@ -1278,7 +1278,7 @@ def main(aggregation='mean'):
     
     output_path = output_dir / f'id_cs_augrc_radars_with_histograms_{aggregation}.png'
     fig_id_cs_augrc.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"\n✓ Saved ID+CS AUGRC to {output_path}")
+    print(f"\n Saved ID+CS AUGRC to {output_path}")
     plt.close(fig_id_cs_augrc)
     
     # ==========================================
@@ -1300,11 +1300,11 @@ def main(aggregation='mean'):
     if fig_ncs_ps_combined:
         output_path = output_dir / f'ncs_ps_combined_radars_with_histograms_{aggregation}.png'
         fig_ncs_ps_combined.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"\n✓ Saved NCS+PS combined (both metrics) to {output_path}")
+        print(f"\n Saved NCS+PS combined (both metrics) to {output_path}")
         plt.close(fig_ncs_ps_combined)
     
     print("\n" + "=" * 80)
-    print("✓ All figures saved!")
+    print(" All figures saved!")
     print("=" * 80)
 
 

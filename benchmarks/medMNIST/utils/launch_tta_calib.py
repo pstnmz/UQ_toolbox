@@ -75,7 +75,7 @@ def run_tta_calib(flag, model, setup, gpu_id, batch_size=4000, gps_calib_samples
     print(f"{'='*80}\n")
     
     if dry_run:
-        print("  [DRY RUN - not executing]\n")
+        print(" [DRY RUN - not executing]\n")
         return 0
     
     try:
@@ -86,10 +86,10 @@ def run_tta_calib(flag, model, setup, gpu_id, batch_size=4000, gps_calib_samples
             check=True,
             cwd=os.path.dirname(os.path.abspath(__file__))
         )
-        print(f"\n✓ Completed: {config_name}\n")
+        print(f"\n Completed: {config_name}\n")
         return result.returncode
     except subprocess.CalledProcessError as e:
-        print(f"\n✗ Failed: {config_name} (exit code: {e.returncode})\n")
+        print(f"\n Failed: {config_name} (exit code: {e.returncode})\n")
         return e.returncode
 
 
@@ -170,7 +170,7 @@ def main():
     print("Configurations:")
     for i, (model, setup) in enumerate(configs, 1):
         setup_str = setup if setup else "standard"
-        print(f"  {i}. {model:12s} - {setup_str}")
+        print(f" {i}. {model:12s} - {setup_str}")
     print()
     
     if args.dry_run:
@@ -198,7 +198,7 @@ def main():
         
         # Stop on error unless continue-on-error is set
         if returncode != 0 and not args.continue_on_error and not args.dry_run:
-            print(f"\n✗ Stopped due to error in configuration {i}/{total_configs}")
+            print(f"\n Stopped due to error in configuration {i}/{total_configs}")
             break
     
     # Print summary
@@ -211,7 +211,7 @@ def main():
     success_count = 0
     for model, setup, returncode in results:
         setup_str = setup if setup else "standard"
-        status = "✓ Success" if returncode == 0 else f"✗ Failed ({returncode})"
+        status = " Success" if returncode == 0 else f" Failed ({returncode})"
         if returncode == 0:
             success_count += 1
         print(f"{model:<15} {setup_str:<10} {status:<10}")

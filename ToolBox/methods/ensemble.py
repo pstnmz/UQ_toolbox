@@ -96,14 +96,14 @@ class MCDropoutMethod(UQMethod):
         if not any(models_with_dropout):
             raise ValueError("No dropout layers found in any model. MC Dropout requires models with dropout layers.")
         
-        print(f"  Models with dropout: {sum(models_with_dropout)}/{len(models)}")
-        print(f"  Performing {self.num_samples} MC samples per model...")
+        print(f" Models with dropout: {sum(models_with_dropout)}/{len(models)}")
+        print(f" Performing {self.num_samples} MC samples per model...")
         
         all_model_uncertainties = []
         
         for model_idx, model in enumerate(models):
             if not models_with_dropout[model_idx]:
-                print(f"  Warning: Model {model_idx} has no dropout, skipping")
+                print(f" Warning: Model {model_idx} has no dropout, skipping")
                 continue
             
             # Enable dropout for this model

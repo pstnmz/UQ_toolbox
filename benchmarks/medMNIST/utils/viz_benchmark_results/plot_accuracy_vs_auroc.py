@@ -238,7 +238,7 @@ def collect_all_data_points(workspace_root):
             json_files = list(comprehensive_shift_dir.glob('*_severity3.json'))
         else:
             json_files = list(comprehensive_shift_dir.glob('comprehensive_metrics_*.json'))
-        print(f"  Found {len(json_files)} classification JSON files")
+        print(f" Found {len(json_files)} classification JSON files")
         
         for json_file in json_files:
             # Parse filename
@@ -396,7 +396,7 @@ def create_scatter_plot(data, output_dir):
             continue
         elif method == 'Mean Agg + Ens':
             # Lightning bolt for Mean Aggregation + Ensemble
-            ax.scatter(x, y, s=150, marker='$⚡$', c='orange',
+            ax.scatter(x, y, s=150, marker='$$', c='orange',
                       label='Mean Agg+Ens', alpha=0.8, edgecolors='black', linewidths=0.3)
             continue
         elif method == 'DE':
@@ -435,7 +435,7 @@ def create_scatter_plot(data, output_dir):
     
     output_path = output_dir / 'accuracy_vs_auroc_scatter.png'
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"\n✓ Scatter plot saved to {output_path}")
+    print(f"\n Scatter plot saved to {output_path}")
     
     plt.close(fig)
     
@@ -516,7 +516,7 @@ def create_scatter_by_shift(data, output_dir):
                 continue
             elif method == 'Mean Agg + Ens':
                 # Lightning bolt for Mean Aggregation + Ensemble
-                ax.scatter(x, y, s=150, marker='$⚡$', c='orange',
+                ax.scatter(x, y, s=150, marker='$$', c='orange',
                           label='Mean Agg+Ens', alpha=0.8, edgecolors='black', linewidths=0.3)
                 continue
             elif method == 'DE':
@@ -565,7 +565,7 @@ def create_scatter_by_shift(data, output_dir):
     
     output_path = output_dir / 'accuracy_vs_auroc_by_shift.png'
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"✓ Shift-wise scatter plot saved to {output_path}")
+    print(f" Shift-wise scatter plot saved to {output_path}")
     
     plt.close(fig)
 
@@ -673,7 +673,7 @@ def create_per_method_correlation_plots(data, output_dir):
                 ax.scatter(x, y, s=150, marker='*', c='red',
                           alpha=0.7, edgecolors='darkred', linewidths=0.5)
             elif method == 'Mean Agg + Ens':
-                ax.scatter(x, y, s=150, marker='$⚡$', c='orange',
+                ax.scatter(x, y, s=150, marker='$$', c='orange',
                           alpha=0.7, edgecolors='black', linewidths=0.5)
             else:
                 ax.scatter(x, y, c=[method_colors[method]], marker='o', s=50,
@@ -740,7 +740,7 @@ def create_per_method_correlation_plots(data, output_dir):
     # Save merged figure
     output_path = output_dir / 'per_method_correlation_all_shifts.png'
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"✓ Merged per-method correlation plot saved to {output_path}")
+    print(f" Merged per-method correlation plot saved to {output_path}")
     
     plt.close(fig)
 
@@ -823,7 +823,7 @@ def create_method_correlation_pairplots(data, output_dir):
         
         # Create pairplot
         if len(method_cols) < 2:
-            print(f"  Skipping {shift_title} - need at least 2 methods")
+            print(f" Skipping {shift_title} - need at least 2 methods")
             continue
         
         # Set up the plot style
@@ -848,7 +848,7 @@ def create_method_correlation_pairplots(data, output_dir):
         # Save figure
         output_path = output_dir / f'method_correlation_pairplot_{shift_type}.png'
         g.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"  ✓ Pairplot saved to {output_path}")
+        print(f" Pairplot saved to {output_path}")
         
         plt.close()
 
@@ -899,7 +899,7 @@ def create_sample_level_pairplots(workspace_root, output_dir):
         uq_shift_dir = workspace_root / 'Benchmarks' / 'medMNIST' / 'results' / 'full_results' / shift_dir_name
         
         if not uq_shift_dir.exists():
-            print(f"  Directory not found: {uq_shift_dir}")
+            print(f" Directory not found: {uq_shift_dir}")
             continue
         
         # Collect all sample-level scores across all NPZ files
@@ -908,7 +908,7 @@ def create_sample_level_pairplots(workspace_root, output_dir):
         
         # Find all NPZ files
         npz_files = sorted(uq_shift_dir.glob('all_metrics_*.npz'), key=lambda p: p.name)
-        print(f"  Found {len(npz_files)} NPZ files")
+        print(f" Found {len(npz_files)} NPZ files")
         
         for npz_file in npz_files:
             # Parse filename to get dataset, model, config
@@ -996,11 +996,11 @@ def create_sample_level_pairplots(workspace_root, output_dir):
                                         sample_scores[key]['correct'] = (y_true[sample_idx] == y_pred_fold[sample_idx])
                 
                 except Exception as e:
-                    print(f"  Warning: Failed to process {npz_file.name}: {e}")
+                    print(f" Warning: Failed to process {npz_file.name}: {e}")
                     continue
         
         if not sample_scores:
-            print(f"  No sample scores found")
+            print(f" No sample scores found")
             continue
         
         # Convert to DataFrame
@@ -1034,10 +1034,10 @@ def create_sample_level_pairplots(workspace_root, output_dir):
         # Convert correct boolean to string labels for better legend
         df_complete['Prediction'] = df_complete['correct'].map({True: 'Correct', False: 'Incorrect'})
         
-        print(f"  Found {len(df_complete)} complete samples across {len(method_cols)} methods")
+        print(f" Found {len(df_complete)} complete samples across {len(method_cols)} methods")
         
         if len(method_cols) < 2 or len(df_complete) < 10:
-            print(f"  Skipping - insufficient data")
+            print(f" Skipping - insufficient data")
             continue
         df_complete = df_complete.rename(columns={'ZScore_Aggregation': 'Mean Agg'})
         # Subsample if too many points (for visualization performance)
@@ -1110,7 +1110,7 @@ def create_sample_level_pairplots(workspace_root, output_dir):
         # Save figure
         output_path = output_dir / f'sample_level_pairplot_{shift_dir_name}.png'
         g.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"  ✓ Sample-level pairplot saved to {output_path}")
+        print(f" Sample-level pairplot saved to {output_path}")
         
         plt.close()
     
@@ -1137,7 +1137,7 @@ def create_sample_level_pairplots(workspace_root, output_dir):
             range_val = max_val - min_val
             xlim = (min_val - 0.05 * range_val, max_val + 0.05 * range_val)
             paired_axis_limits[('id_cs', method)] = {'xlim': xlim, 'ylim': xlim}
-            print(f"  ID+CS {method}: [{xlim[0]:.3f}, {xlim[1]:.3f}]")
+            print(f" ID+CS {method}: [{xlim[0]:.3f}, {xlim[1]:.3f}]")
     
     # Pair 2: PS + NCS (will be completed in amos2022 function)
     if 'population_shifts' in shift_dataframes:
@@ -1171,7 +1171,7 @@ def create_sample_level_pairplots(workspace_root, output_dir):
         # Create corner version - lower-left for ID/population, upper-right for CS/newclass
         if shift_dir_name in ['in_distribution', 'population_shifts']:
             # Lower-left triangle (standard corner=True)
-            print(f"  Creating LOWER-LEFT corner pairplot (same samples)...")
+            print(f" Creating LOWER-LEFT corner pairplot (same samples)...")
             
             # Use PairGrid for consistency with lower-right plots
             df_plot = df_complete.sample(frac=1, random_state=42).reset_index(drop=True)
@@ -1234,7 +1234,7 @@ def create_sample_level_pairplots(workspace_root, output_dir):
             
             # Apply paired axis limits
             pair_key = 'id_cs' if shift_dir_name == 'in_distribution' else 'ps_ncs'
-            print(f"  Applying paired limits for {pair_key}...")
+            print(f" Applying paired limits for {pair_key}...")
             
             for i, method_i in enumerate(method_cols):
                 for j, method_j in enumerate(method_cols):
@@ -1255,12 +1255,12 @@ def create_sample_level_pairplots(workspace_root, output_dir):
             plt.tight_layout()
             output_path_corner = output_dir / f'sample_level_pairplot_{shift_dir_name}_corner_lowerleft.png'
             g_corner.savefig(output_path_corner, dpi=300, bbox_inches='tight')
-            print(f"  ✓ Lower-left corner pairplot saved to {output_path_corner}")
+            print(f" Lower-left corner pairplot saved to {output_path_corner}")
             plt.close()
             
         elif shift_dir_name in ['corruption_shifts', 'new_class_shifts']:
             # Upper-right triangle (custom PairGrid)
-            print(f"  Creating UPPER-RIGHT corner pairplot (same samples)...")
+            print(f" Creating UPPER-RIGHT corner pairplot (same samples)...")
             
             # Shuffle again to ensure proper z-order mixing
             # Use PairGrid for consistency with lower-right plots
@@ -1374,7 +1374,7 @@ def create_sample_level_pairplots(workspace_root, output_dir):
             plt.tight_layout()
             output_path_corner = output_dir / f'sample_level_pairplot_{shift_dir_name}_corner_upperright.png'
             g_corner.savefig(output_path_corner, dpi=300, bbox_inches='tight')
-            print(f"  ✓ Upper-right corner pairplot saved to {output_path_corner}")
+            print(f" Upper-right corner pairplot saved to {output_path_corner}")
             plt.close()
 
     return shift_dataframes
@@ -1397,7 +1397,7 @@ def create_combined_pairplot(shift_dataframe_a, shift_dataframe_b, output_dir, s
     print("="*80)
     
     if shift_dataframe_a is None or shift_dataframe_b is None or shift_dataframe_a.empty or shift_dataframe_b.empty:
-        print(f"\n⚠ Skipping combined {shift_a_name}+{shift_b_name} pairplot - missing data")
+        print(f"\n Skipping combined {shift_a_name}+{shift_b_name} pairplot - missing data")
         return
     
     df_a = shift_dataframe_a
@@ -1409,7 +1409,7 @@ def create_combined_pairplot(shift_dataframe_a, shift_dataframe_b, output_dir, s
     all_methods = list(set(id_methods) | set(cs_methods))  # Union instead of intersection
     
     if len(all_methods) < 2:
-        print("  Insufficient methods")
+        print(" Insufficient methods")
         return
     
     # # Sort alphabetically, but put Mean Agg at the end
@@ -1419,8 +1419,8 @@ def create_combined_pairplot(shift_dataframe_a, shift_dataframe_b, output_dir, s
     #     all_methods.append('Mean Agg')
     all_methods = ['MSR', 'MSR-S', 'MLS', 'TTA', 'GPS', 'MCD', 'KNN', 'Mean Agg']
     
-    print(f"  All methods ({len(all_methods)}): {', '.join(all_methods)}")
-    print(f"  {shift_a_name} samples: {len(df_a)}, {shift_b_name} samples: {len(df_b)}")
+    print(f" All methods ({len(all_methods)}): {', '.join(all_methods)}")
+    print(f" {shift_a_name} samples: {len(df_a)}, {shift_b_name} samples: {len(df_b)}")
     
     # Shuffle both dataframes - only include columns that exist in each
     id_cols_to_keep = [m for m in all_methods if m in df_a.columns] + ['Prediction']
@@ -1654,7 +1654,7 @@ def create_combined_pairplot(shift_dataframe_a, shift_dataframe_b, output_dir, s
     
     output_path = output_dir / f'sample_level_pairplot_{shift_a_name}_{shift_b_name}_combined.png'
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"\n  ✓ Combined {shift_a_name}+{shift_b_name} pairplot saved to {output_path}")
+    print(f"\n   Combined {shift_a_name}+{shift_b_name} pairplot saved to {output_path}")
     
     plt.close()
 
@@ -1698,7 +1698,7 @@ def main():
         create_combined_pairplot(shift_dataframes['population_shifts'], shift_dataframes['new_class_shifts'], output_dir, 'PS', 'NCS')
     
     print("\n" + "=" * 80)
-    print("✓ All plots generated successfully!")
+    print(" All plots generated successfully!")
     print("=" * 80)
 
 

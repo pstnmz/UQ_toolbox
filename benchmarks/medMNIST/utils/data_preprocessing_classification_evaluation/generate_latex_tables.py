@@ -788,8 +788,8 @@ def main():
     print(f"\nLaTeX tables saved to: {output_file}")
     print(f"\nGenerated 12 tables (2 metrics × 3 shift types × 2 models)")
     print("\nTable organization:")
-    print("  AUROC-F: R18-ID, ViT-ID, R18-CS, ViT-CS, [R18-PS/NCS + ViT-PS/NCS on same page]")
-    print("  AUGRC:   R18-ID, ViT-ID, R18-CS, ViT-CS, [R18-PS/NCS + ViT-PS/NCS on same page]")
+    print(" AUROC-F: R18-ID, ViT-ID, R18-CS, ViT-CS, [R18-PS/NCS + ViT-PS/NCS on same page]")
+    print(" AUGRC:   R18-ID, ViT-ID, R18-CS, ViT-CS, [R18-PS/NCS + ViT-PS/NCS on same page]")
     print("\nNote: Each table may have multiple subtables (one per 2 datasets)")
     print("PS/NCS tables for both models are kept on the same page with \\vspace{2ex} separation")
 

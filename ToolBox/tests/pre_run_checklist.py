@@ -23,13 +23,13 @@ def check_dependencies():
         try:
             if module is None:
                 __import__(name)
-            print(f"  ✅ {name}")
+            print(f" [OK] {name}")
         except ImportError:
             missing.append(name)
-            print(f"  ❌ {name} (missing)")
+            print(f" [ERROR] {name} (missing)")
     
     if missing:
-        print(f"\n⚠️  Install missing packages: pip install {' '.join(missing)}")
+        print(f"\n[WARNING] Install missing packages: pip install {' '.join(missing)}")
         return False
     return True
 
@@ -37,11 +37,11 @@ def check_cuda():
     """Check CUDA availability."""
     print("\nChecking CUDA...")
     if torch.cuda.is_available():
-        print(f"  ✅ CUDA available: {torch.cuda.get_device_name(0)}")
-        print(f"  ✅ CUDA version: {torch.version.cuda}")
+        print(f" [OK] CUDA available: {torch.cuda.get_device_name(0)}")
+        print(f" [OK] CUDA version: {torch.version.cuda}")
         return True
     else:
-        print("  ⚠️  CUDA not available (will use CPU)")
+        print(" [WARNING] CUDA not available (will use CPU)")
         return False
 
 def check_imports():
@@ -51,10 +51,10 @@ def check_imports():
         import UQ_Toolbox.UQ_toolbox as uq
         from UQ_Toolbox.methods import TTAMethod, GPSMethod, EnsembleSTDMethod
         from UQ_Toolbox.visualization import compare_uq_methods
-        print("  ✅ All imports successful")
+        print(" [OK] All imports successful")
         return True
     except Exception as e:
-        print(f"  ❌ Import error: {e}")
+        print(f" [ERROR] Import error: {e}")
         return False
 
 def check_disk_space(required_gb=10):
@@ -64,14 +64,14 @@ def check_disk_space(required_gb=10):
         import shutil
         stat = shutil.disk_usage('.')
         free_gb = stat.free / (1024**3)
-        print(f"  Available: {free_gb:.1f} GB")
+        print(f" Available: {free_gb:.1f} GB")
         if free_gb < required_gb:
-            print(f"  ⚠️  Low disk space! Need at least {required_gb}GB")
+            print(f" [WARNING] Low disk space! Need at least {required_gb}GB")
             return False
-        print(f"  ✅ Sufficient disk space")
+        print(f" [OK] Sufficient disk space")
         return True
     except Exception as e:
-        print(f"  ⚠️  Could not check disk space: {e}")
+        print(f" [WARNING] Could not check disk space: {e}")
         return True  # Don't fail on this
 
 def main():
@@ -88,11 +88,11 @@ def main():
     
     print("\n" + "="*60)
     if all(checks):
-        print("✅ ALL CHECKS PASSED - Ready to run!")
+        print("[OK] ALL CHECKS PASSED - Ready to run!")
         print("="*60)
         return 0
     else:
-        print("⚠️  SOME CHECKS FAILED - Fix issues above")
+        print("[WARNING] SOME CHECKS FAILED - Fix issues above")
         print("="*60)
         return 1
 

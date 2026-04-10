@@ -45,9 +45,9 @@ class MIDOGPatchDataset(Dataset):
         self.transform = transform
         
         print(f"Loaded MIDOG++ dataset:")
-        print(f"  Images: {self.images.shape}")
-        print(f"  Labels: {self.labels.shape}")
-        print(f"  Tumor types: {self.tumor_types}")
+        print(f" Images: {self.images.shape}")
+        print(f" Labels: {self.labels.shape}")
+        print(f" Tumor types: {self.tumor_types}")
         
     def __len__(self):
         return len(self.images)
@@ -175,11 +175,11 @@ def main():
     print(f"\nMIDOG++ Tumor Types ({len(midog_tumor_types)}):")
     for i, tumor_type in enumerate(midog_tumor_types):
         count = np.sum(midog_dataset.labels == i)
-        print(f"  {i}: {tumor_type} ({count} patches)")
+        print(f" {i}: {tumor_type} ({count} patches)")
     
     print(f"\nPathMNIST Classes ({len(pathmnist_classes)}):")
     for i, class_name in enumerate(pathmnist_classes):
-        print(f"  {i}: {class_name}")
+        print(f" {i}: {class_name}")
     
     # Load PathMNIST ResNet18 model (fold 0, standard training - no augmentation, no dropout)
     print(f"\nLoading PathMNIST ResNet18 models (standard training)...")
@@ -201,9 +201,9 @@ def main():
     y_true, y_pred, y_probs = run_inference(model, midog_loader, device)
     
     print(f"\nInference complete!")
-    print(f"  True labels shape: {y_true.shape}")
-    print(f"  Predictions shape: {y_pred.shape}")
-    print(f"  Probabilities shape: {y_probs.shape}")
+    print(f" True labels shape: {y_true.shape}")
+    print(f" Predictions shape: {y_pred.shape}")
+    print(f" Probabilities shape: {y_probs.shape}")
     
     # Plot confusion matrix
     print(f"\nGenerating confusion matrix...")
@@ -232,8 +232,8 @@ def main():
         top_pred_count = row[top_pred_idx]
         total_count = row.sum()
         percentage = (top_pred_count / total_count * 100) if total_count > 0 else 0
-        print(f"  {tumor_type}:")
-        print(f"    → {pathmnist_classes[top_pred_idx]} ({top_pred_count}/{total_count} = {percentage:.1f}%)")
+        print(f" {tumor_type}:")
+        print(f" → {pathmnist_classes[top_pred_idx]} ({top_pred_count}/{total_count} = {percentage:.1f}%)")
 
 
 if __name__ == '__main__':

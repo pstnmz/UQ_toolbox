@@ -1,17 +1,33 @@
+"""Batch launcher for ViT-B/16 training runs.
+
+Edit the lists below to define which training configurations to run.
+Each entry in the four lists corresponds to a single training job:
+  - flags:           dataset name (medMNIST flag)
+  - colors:          True if the dataset has 3-channel colour images
+  - use_randaugment: enable RandAugment data augmentation
+  - use_dropouts:    enable MC-Dropout (adds a dropout layer before the classifier)
+
+The four benchmark setups used in the paper are:
+  (DA=False, DO=False) -> standard
+  (DA=True,  DO=False) -> DA
+  (DA=False, DO=True)  -> DO
+  (DA=True,  DO=True)  -> DADO
+"""
 import subprocess, shlex
 from pathlib import Path
 
-#flags = ['breastmnist', 'organamnist', 'pneumoniamnist', 'octmnist', 'pathmnist', 'bloodmnist', 'tissuemnist', 'dermamnist-e']
+# --- Datasets to train (one entry per job) ---
 flags = ['organamnist', 'organamnist', 'organamnist', 'organamnist']
-colors = [False, False, False, False]
-#colors = [False, False, False, False, True, True, False, True]  # Colors for the flags 
-use_randaugment = [False, True, False, True]  # <- enable/disable RandAugment here
-use_dropouts = [False, False, True, True]        # <- enable/disable Dropout for MC Dropout
-dropout_rate = 0.1         # <- dropout rate (default: 0.1 for ViT, lower than ResNet)
-learning_rate = 0.0001     # <- learning rate (ViT typically uses lower LR)
+colors = [False, False, False, False]  # True for colour datasets (dermamnist, pathmnist, bloodmnist)
+use_randaugment = [False, True, False, True]  # enable/disable RandAugment
+use_dropouts = [False, False, True, True]      # enable/disable MC-Dropout
+
+# --- Shared hyperparameters ---
+dropout_rate = 0.1      # dropout rate (0.1 for ViT; lower than ResNet to avoid under-fitting)
+learning_rate = 0.0001  # ViT benefits from a lower LR than ResNet-18
 num_epochs = 100
-batch_size = 128            # <- ViT uses smaller batch size due to larger model
-cuda = "cuda:2"            # <- specify CUDA device
+batch_size = 128        # ViT uses a smaller batch size due to memory footprint
+cuda = "cuda:2"        # target CUDA device
 
 python = "/home/psteinmetz/venvs/venv_medMNIST/bin/python3.12"  # or path to your venv python
 script_path = Path(__file__).parent / 'train_vit_medMNIST.py'

@@ -256,7 +256,7 @@ def create_4x4_montage(datasets_config, output_path, title=None):
     
     print(f"Collecting images for {output_path.name}...")
     for dataset_name, shift, num_images in datasets_config:
-        print(f"  - {dataset_name} ({shift}): {num_images} images")
+        print(f" - {dataset_name} ({shift}): {num_images} images")
         images = collect_images_from_dataset(dataset_name, shift, num_images)
         
         # Normalize to RGB (3 channels) for consistency
@@ -270,7 +270,7 @@ def create_4x4_montage(datasets_config, output_path, title=None):
     
     # Should have exactly 16 images
     if len(all_images) != 16:
-        print(f"  ⚠️  Warning: Expected 16 images, got {len(all_images)}")
+        print(f" Warning: Expected 16 images, got {len(all_images)}")
         # Pad or truncate
         if len(all_images) < 16:
             # Repeat some images to fill
@@ -312,7 +312,7 @@ def create_4x4_montage(datasets_config, output_path, title=None):
     
     # Save with exact dimensions
     fig.savefig(output_path, dpi=100, bbox_inches=None, pad_inches=0)
-    print(f"  ✓ Saved: {output_path} (896x896 pixels)")
+    print(f" Saved: {output_path} (896x896 pixels)")
     plt.close(fig)
 
 
@@ -351,7 +351,7 @@ def generate_all_large_montages(output_dir='uq_benchmark_results/figures/dataset
     ]
     create_4x4_montage(ps_ncs_config, output_path / 'ps_ncs_4x4.png', 'Population + New Class Shift')
     
-    print(f"\n✓ All 4x4 montages saved to: {output_path}")
+    print(f"\n All 4x4 montages saved to: {output_path}")
 
 
 if __name__ == "__main__":

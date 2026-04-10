@@ -469,7 +469,7 @@ def create_all_datasets_detailed_boxplot(results, output_dir):
     
     output_file = os.path.join(output_dir, 'all_datasets_boxplots.png')
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"  ✓ Saved: {output_file}")
+    print(f" Saved: {output_file}")
     plt.close()
 
 
@@ -634,7 +634,7 @@ def create_detailed_boxplot_per_dataset(results, output_dir):
         
         output_file = os.path.join(output_dir, f'{dataset_name}_detailed_boxplot.png')
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"  ✓ Saved: {output_file}")
+        print(f" Saved: {output_file}")
         plt.close()
 
 
@@ -761,7 +761,7 @@ def create_three_column_layout(results, output_dir):
     
     output_file = os.path.join(output_dir, 'all_datasets_three_column_layout.png')
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"  ✓ Saved: {output_file}")
+    print(f" Saved: {output_file}")
     plt.close()
 
 
@@ -861,7 +861,7 @@ def create_all_datasets_boxplots(results, output_dir):
     
     output_file = os.path.join(output_dir, 'all_datasets_boxplots.png')
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"  ✓ Saved: {output_file}")
+    print(f" Saved: {output_file}")
     plt.close()
     # Create legend
     legend_elements = [
@@ -891,7 +891,7 @@ def create_all_datasets_boxplots(results, output_dir):
     
     output_file = os.path.join(output_dir, 'all_datasets_boxplots.png')
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"  ✓ Saved: {output_file}")
+    print(f" Saved: {output_file}")
     plt.close()
 
 
@@ -1025,7 +1025,7 @@ def create_ensemble_scatter_plot(results, output_dir):
     
     output_file = os.path.join(output_dir, 'ensemble_vs_folds_scatter.png')
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"  ✓ Saved: {output_file}")
+    print(f" Saved: {output_file}")
     plt.close()
 
 
@@ -1074,7 +1074,7 @@ def create_metric_comparison_table(results, output_dir):
     # Save as CSV
     csv_file = os.path.join(output_dir, 'summary_table.csv')
     df.to_csv(csv_file, index=False)
-    print(f"  ✓ Saved: {csv_file}")
+    print(f" Saved: {csv_file}")
     
     return df
 
@@ -1100,8 +1100,8 @@ def main():
                     for models in results.values() 
                     for setups in models.values())
     
-    print(f"  ✓ Loaded {n_configs} configurations across {n_datasets} datasets")
-    print(f"  Datasets: {', '.join(sorted(results.keys()))}")
+    print(f" Loaded {n_configs} configurations across {n_datasets} datasets")
+    print(f" Datasets: {', '.join(sorted(results.keys()))}")
     
     # Create visualizations
     print(f"\nGenerating visualizations...")
@@ -1121,9 +1121,9 @@ def main():
     print("="*80)
     print(f"Output directory: {output_dir}")
     print(f"Generated:")
-    print(f"  - 1 comprehensive boxplot with all datasets")
-    print(f"  - 1 ensemble vs per-fold scatter plot")
-    print(f"  - 1 summary CSV table")
+    print(f" - 1 comprehensive boxplot with all datasets")
+    print(f" - 1 ensemble vs per-fold scatter plot")
+    print(f" - 1 summary CSV table")
     print("="*80)
 
 

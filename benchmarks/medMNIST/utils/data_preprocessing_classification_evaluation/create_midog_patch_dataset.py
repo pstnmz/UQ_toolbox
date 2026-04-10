@@ -203,7 +203,7 @@ def create_patch_dataset(
     print(f"\nTumor types found:")
     for tumor_type, label in tumor_type_to_label.items():
         count = sum(1 for img in canine_images if img['tumor_type'] == tumor_type)
-        print(f"  {label}: {tumor_type} ({count} images)")
+        print(f" {label}: {tumor_type} ({count} images)")
     print(f"\n{'='*70}")
     print(f"RESOLUTION MATCHING FOR CROSS-DATASET COMPARISON")
     print(f"{'='*70}")
@@ -312,12 +312,12 @@ def create_patch_dataset(
     print(f"Total patches created: {len(all_patches)}")
     print(f"Successfully processed: {len(image_info) - len(failed_images)}/{len(image_info)} images")
     print(f"\nResolution matching applied:")
-    print(f"  Target resolution: {target_resolution} µm/px")
-    print(f"  Source resolutions found:")
+    print(f" Target resolution: {target_resolution} µm/px")
+    print(f" Source resolutions found:")
     for res, count in sorted(resolution_stats.items()):
         scale = res / target_resolution
-        print(f"    {res} µm/px: {count} images (resampled by {scale:.3f}x)")
-    print(f"  Physical patch size: {patch_size * target_resolution:.1f} µm × {patch_size * target_resolution:.1f} µm")
+        print(f" {res} µm/px: {count} images (resampled by {scale:.3f}x)")
+    print(f" Physical patch size: {patch_size * target_resolution:.1f} µm × {patch_size * target_resolution:.1f} µm")
     print(f"\nFile saved to: {output_path}")
     if save_individual:
         print(f"Individual patches saved to: {patches_dir}")
@@ -325,7 +325,7 @@ def create_patch_dataset(
     if failed_images:
         print(f"\nFailed images ({len(failed_images)}):")
         for fname in failed_images:
-            print(f"  - {fname}")
+            print(f" - {fname}")
     
     # Save metadata as separate JSON file
     metadata = {

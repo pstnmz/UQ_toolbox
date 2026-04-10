@@ -1,3 +1,28 @@
+"""
+Shared utilities for medMNIST dataset loading, model training, and CV fold generation.
+
+Public API
+----------
+Dataset / DataLoader helpers:
+    get_datasets          -- load a medMNIST (or custom) dataset
+    load_datasets         -- convenience wrapper returning train/val/test datasets
+    get_dataloaders       -- wrap datasets into DataLoaders (with optional caching)
+
+Model training:
+    train_resnet18        -- train a ResNet-18 for one fold (returns model + metrics)
+    train_vit             -- train a ViT-B/16 for one fold
+    evaluate_model        -- evaluate a model (or ensemble) on a test loader
+    save_model / load_models -- checkpoint I/O
+
+Cross-validation:
+    CV_fold_generator     -- generator yielding (fold_idx, train_loader, val_loader)
+    CV_train_val_loaders  -- return all folds at once (kept for backward compat.)
+    get_single_CV_fold    -- materialize one specific fold
+
+Note: CV parameters (n_splits=5, seed=42, StratifiedKFold) are shared with
+the benchmark inference pipeline (run_medmnist_benchmark.py).  Never change
+them without retraining the models.
+"""
 import torch
 from torch.utils.data import DataLoader
 from torchvision import models, transforms
@@ -70,10 +95,6 @@ def _clear_cache_dataset(ds):
     for attr in ("_cache", "_cached", "cache", "data"):
         if hasattr(ds, attr):
             setattr(ds, attr, None)
-
-def _append_log(path, text):
-    with open(path, 'a') as f:
-        f.write(text.rstrip() + '\n')
 
 # --- ResNet18 with Dropout for MC Dropout ---
 class ResNet18WithDropout(nn.Module):
@@ -949,7 +970,7 @@ def train_vit(data_flag, info, num_epochs=10, learning_rate=0.001, device=None,
                     best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
                 if best_ckpt_path:
                     torch.save(model.state_dict(), best_ckpt_path)
-                    print(f"  → Best model saved (epoch {epoch+1})")
+                    print(f" → Best model saved (epoch {epoch+1})")
             
             if stopper.should_stop():
                 print(f"Early stopping triggered at epoch {epoch+1}")
@@ -1097,9 +1118,9 @@ def evaluate_model(model, test_loader, data_flag, device=None, output_dir=None, 
             else:
                 auc = roc_auc_score(y_true, y_score, multi_class='ovr', average='macro')
     except Exception as e:
-        print(f"  AUC computation failed: {e}")
-        print(f"  y_true shape: {y_true.shape}, unique classes: {np.unique(y_true)}")
-        print(f"  y_score shape: {y_score.shape}, num_classes: {num_classes}")
+        print(f" AUC computation failed: {e}")
+        print(f" y_true shape: {y_true.shape}, unique classes: {np.unique(y_true)}")
+        print(f" y_score shape: {y_score.shape}, num_classes: {num_classes}")
         auc = float('nan')
 
     cm = confusion_matrix(y_true, y_pred, labels=list(range(num_classes)))

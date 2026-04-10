@@ -37,7 +37,7 @@ class TTAMethod(UQMethod):
             transformations: List of augmentation policies or None (random if None)
             n: Number of ops per augmentation (BetterRandAugment)
             m: Magnitude of ops (BetterRandAugment)
-            nb_augmentations: Number of augmentations (if transformations=None)  # ← ADD
+            nb_augmentations: Number of augmentations (if transformations=None)
             **kwargs: Additional TTA parameters (image_size, mean, std, etc.)
         """
         super().__init__("TTA")
@@ -142,7 +142,7 @@ class GPSMethod(UQMethod):
         if self.policies is None:
             raise RuntimeError("Call search_policies() before compute()")
         
-        print(f"  Extracting {len(self.policies)} policy groups...")
+        print(f" Extracting {len(self.policies)} policy groups...")
         
         # Extract policies from search results
         transformation_pipeline = []
@@ -157,10 +157,10 @@ class GPSMethod(UQMethod):
         # Override m parameter with extracted M from filenames if available
         # This ensures max_magnitude matches the scale used when policies were generated
         if extracted_m is not None:
-            print(f"  Using M={extracted_m} extracted from policy filenames (overriding m={m})")
+            print(f" Using M={extracted_m} extracted from policy filenames (overriding m={m})")
             m = extracted_m
         
-        print(f"  Extracted {len(transformation_pipeline)} transformation pipelines")
+        print(f" Extracted {len(transformation_pipeline)} transformation pipelines")
         
         if not transformation_pipeline:
             raise RuntimeError("No valid policies extracted from search results")
@@ -219,7 +219,7 @@ def _batched_augmentation_inference(augmented_inputs, models, device, batch_size
     # Use batch_size as the limit (respects user's --batch-size flag)
     if total_samples <= batch_size:
         # Fast path: batch all augmentations together
-        print(f"  Using batched inference ({K} augmentations × {N} samples = {total_samples})")
+        print(f" Using batched inference ({K} augmentations × {N} samples = {total_samples})")
         
         # Reshape: [K, N, C, H, W] → [K*N, C, H, W]
         imgs_batched = augmented_inputs.reshape(total_samples, C, H, W)
@@ -240,7 +240,7 @@ def _batched_augmentation_inference(augmented_inputs, models, device, batch_size
         return predictions
     else:
         # Fallback: process each augmentation separately with proper batching
-        print(f"  Using sequential inference (total samples {total_samples} > batch_size {batch_size})")
+        print(f" Using sequential inference (total samples {total_samples} > batch_size {batch_size})")
         
         if ensemble_mode:
             # Store per-model predictions: [M, K, N, num_classes]
@@ -416,13 +416,13 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
             memory_efficient_threshold = 5  # Process sequentially if > 5 policies in a group (typical with top_k=3)
             
             for group_idx, policy_group in enumerate(transformations):
-                print(f"  Applying policy group {group_idx + 1}/{len(transformations)} ({len(policy_group)} policies)...")
+                print(f" Applying policy group {group_idx + 1}/{len(transformations)} ({len(policy_group)} policies)...")
                 
                 K = len(policy_group)
                 use_sequential = K > memory_efficient_threshold
                 
                 if use_sequential:
-                    print(f"    Using memory-efficient mode (processing {K} policies one at a time)")
+                    print(f" Using memory-efficient mode (processing {K} policies one at a time)")
                     # Process one policy at a time to avoid RAM buildup
                     if ensemble_mode:
                         # Track predictions per model: [M] → list of [K, N, num_classes]
@@ -431,7 +431,7 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
                         
                         for policy_idx, single_policy in enumerate(policy_group):
                             if policy_idx % 10 == 0:
-                                print(f"      Policy {policy_idx+1}/{K}...")
+                                print(f" Policy {policy_idx+1}/{K}...")
                             
                             # Apply single policy: [1, N, C, H, W]
                             augmented_inputs, _ = apply_augmentations(
@@ -471,7 +471,7 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
                         
                         for policy_idx, single_policy in enumerate(policy_group):
                             if policy_idx % 10 == 0:
-                                print(f"      Policy {policy_idx+1}/{K}...")
+                                print(f" Policy {policy_idx+1}/{K}...")
                             
                             augmented_inputs, _ = apply_augmentations(
                                 dataset, 1, usingBetterRandAugment, n, m, 
@@ -715,7 +715,7 @@ def apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m,
 
         for i, augmentation in enumerate(augmentations):
             augmented_inputs_batch = []
-            print(f"  Loading augmentation {i+1}/{len(augmentations)}...", end='', flush=True)
+            print(f" Loading augmentation {i+1}/{len(augmentations)}...", end='', flush=True)
             data_loader = _get_loader(augmentation)
             for batch in data_loader:
                 augmented_images = batch[0]

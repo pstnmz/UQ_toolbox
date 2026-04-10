@@ -77,9 +77,9 @@ class MIDOGPatchDataset(Dataset):
         self.transform = transform
         
         print(f"Loaded MIDOG++ dataset:")
-        print(f"  Images: {self.images.shape}")
-        print(f"  Labels: {self.labels.shape}")
-        print(f"  Tumor types: {self.tumor_types}")
+        print(f" Images: {self.images.shape}")
+        print(f" Labels: {self.labels.shape}")
+        print(f" Tumor types: {self.tumor_types}")
         
     def __len__(self):
         return len(self.images)
@@ -145,13 +145,13 @@ def load_amos_dataset(transform, transform_tta, batch_size=256, workspace_root=N
     if workspace_root is None:
         workspace_root = Path(__file__).resolve().parent.parent.parent.parent
     
-    print("  Loading AMOS external test dataset...")
+    print(" Loading AMOS external test dataset...")
     amos_path = workspace_root / 'benchmarks' / 'medMNIST' / 'Data' / 'AMOS_2022' / 'amos_external_test_224.npz'
     
     # Check if file is a Git LFS pointer (not the actual data)
     if amos_path.stat().st_size < 1000:  # Real file should be ~133MB
         raise FileNotFoundError(
-            f"\n❌ AMOS dataset file appears to be a Git LFS pointer.\n"
+            f"\n AMOS dataset file appears to be a Git LFS pointer.\n"
             f"   Please download the actual file using:\n"
             f"   git lfs pull\n"
             f"   Or manually download from the repository."
@@ -161,7 +161,7 @@ def load_amos_dataset(transform, transform_tta, batch_size=256, workspace_root=N
         amos_data = np.load(str(amos_path), allow_pickle=True)
     except Exception as e:
         raise RuntimeError(
-            f"\n❌ Failed to load AMOS dataset from {amos_path}\n"
+            f"\n Failed to load AMOS dataset from {amos_path}\n"
             f"   Error: {e}\n"
             f"   File size: {amos_path.stat().st_size} bytes\n"
             f"   If this is a Git LFS pointer, run: git lfs pull"
@@ -199,7 +199,7 @@ def load_amos_dataset(transform, transform_tta, batch_size=256, workspace_root=N
     )
     test_dataset_tta = AMOSDataset(filtered_images, filtered_labels, transform=transform_tta)
     
-    print(f"  AMOS: {len(test_dataset)} samples (filtered from {len(amos_images)})")
+    print(f" AMOS: {len(test_dataset)} samples (filtered from {len(amos_images)})")
     
     return test_dataset, test_loader, test_dataset_tta, filtered_images, filtered_labels
 
@@ -229,13 +229,13 @@ def load_amos_for_new_class_shift(transform, transform_tta, models, device, batc
     if workspace_root is None:
         workspace_root = Path(__file__).resolve().parent.parent.parent.parent
     
-    print("  Loading AMOS for new class shift evaluation...")
+    print(" Loading AMOS for new class shift evaluation...")
     amos_path = workspace_root / 'benchmarks' / 'medMNIST' / 'Data' / 'AMOS_2022' / 'amos_external_test_224.npz'
     
     # Check if file is a Git LFS pointer
     if amos_path.stat().st_size < 1000:
         raise FileNotFoundError(
-            "\n❌ AMOS dataset file appears to be a Git LFS pointer.\n"
+            "\n AMOS dataset file appears to be a Git LFS pointer.\n"
             "   Please download the actual file using: git lfs pull"
         )
     
@@ -243,7 +243,7 @@ def load_amos_for_new_class_shift(transform, transform_tta, models, device, batc
         amos_data = np.load(str(amos_path), allow_pickle=True)
     except Exception as e:
         raise RuntimeError(
-            f"\\n❌ Failed to load AMOS dataset from {amos_path}\\n"
+            f"\\n Failed to load AMOS dataset from {amos_path}\\n"
             f"   Error: {e}\\n"
             f"   File size: {amos_path.stat().st_size} bytes"
         ) from e
@@ -274,11 +274,11 @@ def load_amos_for_new_class_shift(transform, transform_tta, models, device, batc
         else:
             new_class_indices.append(idx)
     
-    print(f"  Known classes (mapped): {len(known_class_indices)} samples")
-    print(f"  New classes (unmapped): {len(new_class_indices)} samples")
+    print(f" Known classes (mapped): {len(known_class_indices)} samples")
+    print(f" New classes (unmapped): {len(new_class_indices)} samples")
     
     # Evaluate models on known class samples to find unanimous correct predictions
-    print("  Evaluating models to find unanimous correct predictions...")
+    print(" Evaluating models to find unanimous correct predictions...")
     known_images = amos_images[known_class_indices]
     known_labels = np.array(known_class_labels_organamnist)
     
@@ -306,7 +306,7 @@ def load_amos_for_new_class_shift(transform, transform_tta, models, device, batc
         
         all_fold_predictions.append(np.concatenate(fold_preds))
         fold_acc = np.mean(all_fold_predictions[-1] == known_labels)
-        print(f"    Fold {fold_idx}: {fold_acc:.4f} accuracy on known classes")
+        print(f" Fold {fold_idx}: {fold_acc:.4f} accuracy on known classes")
     
     all_fold_predictions = np.stack(all_fold_predictions, axis=0)  # [K, N_known]
     
@@ -314,7 +314,7 @@ def load_amos_for_new_class_shift(transform, transform_tta, models, device, batc
     unanimous_correct_mask = np.all(all_fold_predictions == known_labels[None, :], axis=0)
     unanimous_correct_local_idx = np.where(unanimous_correct_mask)[0]  # Indices within known_class_indices
     
-    print(f"  Unanimous correct: {len(unanimous_correct_local_idx)}/{len(known_class_indices)} "
+    print(f" Unanimous correct: {len(unanimous_correct_local_idx)}/{len(known_class_indices)} "
           f"({100*len(unanimous_correct_local_idx)/len(known_class_indices):.1f}%)")
     
     # Create artificial test set
@@ -337,9 +337,9 @@ def load_amos_for_new_class_shift(transform, transform_tta, models, device, batc
         np.ones(len(failure_images), dtype=np.int64)    # New classes = failures
     ], axis=0)
     
-    print(f"  Artificial test set: {len(correct_images)} correct + {len(failure_images)} failures "
+    print(f" Artificial test set: {len(correct_images)} correct + {len(failure_images)} failures "
           f"= {len(artificial_images)} total")
-    print(f"  Failure rate: {100*len(failure_images)/len(artificial_images):.1f}%")
+    print(f" Failure rate: {100*len(failure_images)/len(artificial_images):.1f}%")
     
     # Create datasets with original labels for model evaluation, binary_gt stored as attribute
     test_dataset = AMOSDataset(artificial_images, original_labels, transform=transform)
@@ -383,14 +383,14 @@ def load_midog_for_new_class_shift(transform, transform_tta, models, device,
     if workspace_root is None:
         workspace_root = PathLib(__file__).resolve().parent.parent.parent.parent
     
-    print("  Loading MIDOG++ for new class shift evaluation...")
+    print(" Loading MIDOG++ for new class shift evaluation...")
     
     # Load MIDOG++ canine patches
     midog_path = workspace_root / 'benchmarks' / 'medMNIST' / 'Data' / 'MIDOG++' / 'midog_canine_patches.npz'
     
     if not midog_path.exists():
         raise FileNotFoundError(
-            f"\n❌ MIDOG++ patches file not found at {midog_path}\n"
+            f"\n MIDOG++ patches file not found at {midog_path}\n"
             f"   Please run create_midog_patch_dataset.py first to generate the patches."
         )
     
@@ -398,24 +398,24 @@ def load_midog_for_new_class_shift(transform, transform_tta, models, device,
         midog_data = np.load(str(midog_path), allow_pickle=True)
     except Exception as e:
         raise RuntimeError(
-            f"\n❌ Failed to load MIDOG++ patches from {midog_path}\n"
+            f"\n Failed to load MIDOG++ patches from {midog_path}\n"
             f"   Error: {e}"
         ) from e
     
     midog_images = midog_data['images']  # (N_midog, 224, 224, 3) uint8 RGB
     midog_labels = midog_data['labels']  # (N_midog,) - original tumor type labels
     
-    print(f"  MIDOG++ patches: {len(midog_images)} samples (canine tumors - OOD for PathMNIST)")
+    print(f" MIDOG++ patches: {len(midog_images)} samples (canine tumors - OOD for PathMNIST)")
     
     # Use pre-loaded PathMNIST test set to find unanimous correct predictions
-    print("  Using PathMNIST test set for in-distribution samples...")
-    print(f"  PathMNIST test: {len(pathmnist_test_dataset)} samples")
+    print(" Using PathMNIST test set for in-distribution samples...")
+    print(f" PathMNIST test: {len(pathmnist_test_dataset)} samples")
     
     # Create loader for PathMNIST test set
     pathmnist_loader = DataLoader(pathmnist_test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
     
     # Evaluate models on PathMNIST test set to find unanimous correct predictions
-    print("  Evaluating PathMNIST models to find unanimous correct predictions...")
+    print(" Evaluating PathMNIST models to find unanimous correct predictions...")
     
     # Get ground truth labels from test set
     pathmnist_labels = []
@@ -448,14 +448,14 @@ def load_midog_for_new_class_shift(transform, transform_tta, models, device,
         
         all_fold_predictions.append(np.concatenate(fold_preds))
         fold_acc = np.mean(all_fold_predictions[-1] == pathmnist_labels)
-        print(f"    Fold {fold_idx}: {fold_acc:.4f} accuracy on PathMNIST")
+        print(f" Fold {fold_idx}: {fold_acc:.4f} accuracy on PathMNIST")
         
         # Debug: Check first few predictions vs labels
         if fold_idx == 0:
-            print(f"    First 20 predictions: {all_fold_predictions[-1][:20]}")
-            print(f"    First 20 labels:      {pathmnist_labels[:20]}")
-            print(f"    Label distribution - predictions: {np.bincount(all_fold_predictions[-1], minlength=9)}")
-            print(f"    Label distribution - ground truth: {np.bincount(pathmnist_labels, minlength=9)}")
+            print(f" First 20 predictions: {all_fold_predictions[-1][:20]}")
+            print(f" First 20 labels:      {pathmnist_labels[:20]}")
+            print(f" Label distribution - predictions: {np.bincount(all_fold_predictions[-1], minlength=9)}")
+            print(f" Label distribution - ground truth: {np.bincount(pathmnist_labels, minlength=9)}")
     
     all_fold_predictions = np.stack(all_fold_predictions, axis=0)  # [K, N_pathmnist]
     
@@ -463,7 +463,7 @@ def load_midog_for_new_class_shift(transform, transform_tta, models, device,
     unanimous_correct_mask = np.all(all_fold_predictions == pathmnist_labels[None, :], axis=0)
     unanimous_correct_idx = np.where(unanimous_correct_mask)[0]
     
-    print(f"  Unanimous correct: {len(unanimous_correct_idx)}/{len(pathmnist_test_dataset)} "
+    print(f" Unanimous correct: {len(unanimous_correct_idx)}/{len(pathmnist_test_dataset)} "
           f"({100*len(unanimous_correct_idx)/len(pathmnist_test_dataset):.1f}%)")
     
     # Extract unanimous correct PathMNIST samples
@@ -508,9 +508,9 @@ def load_midog_for_new_class_shift(transform, transform_tta, models, device,
         np.ones(len(failure_images), dtype=np.int64)    # MIDOG = failures (OOD)
     ], axis=0)
     
-    print(f"  Artificial test set: {len(success_images)} success (PathMNIST) + {len(failure_images)} failures (MIDOG) "
+    print(f" Artificial test set: {len(success_images)} success (PathMNIST) + {len(failure_images)} failures (MIDOG) "
           f"= {len(artificial_images)} total")
-    print(f"  Failure rate: {100*len(failure_images)/len(artificial_images):.1f}%")
+    print(f" Failure rate: {100*len(failure_images)/len(artificial_images):.1f}%")
     
     # Create custom dataset class for RGB images
     class RGBImageDataset(Dataset):
@@ -602,7 +602,7 @@ def subsample_dataset_failure_aware(dataset, models, device, max_samples=None,
     
     if max_samples is None or len(dataset) <= max_samples:
         # No subsampling needed - compute indices on full dataset
-        print(f"  No subsampling needed (dataset size: {len(dataset)})")
+        print(f" No subsampling needed (dataset size: {len(dataset)})")
         
         # Use eval_dataset if provided (for normalized inference), otherwise use dataset
         inference_dataset = eval_dataset if eval_dataset is not None else dataset
@@ -614,14 +614,14 @@ def subsample_dataset_failure_aware(dataset, models, device, max_samples=None,
         y_true, y_scores, ensemble_preds, correct_indices, incorrect_indices, _ = \
             uq.evaluate_models_on_loader(models, loader, device)
         
-        print(f"    Full dataset: {len(correct_indices)} correct, {len(incorrect_indices)} incorrect")
+        print(f" Full dataset: {len(correct_indices)} correct, {len(incorrect_indices)} incorrect")
         return dataset, np.array(correct_indices), np.array(incorrect_indices)
     
-    print(f"  Running ensemble inference to identify failures...")
+    print(f" Running ensemble inference to identify failures...")
     
     # Use eval_dataset if provided (for normalized inference), otherwise use dataset
     inference_dataset = eval_dataset if eval_dataset is not None else dataset
-    print(f"  Inference dataset type: {type(inference_dataset)}, length: {len(inference_dataset)}")
+    print(f" Inference dataset type: {type(inference_dataset)}, length: {len(inference_dataset)}")
     
     # Use evaluate_models_on_loader for consistent ensemble inference (soft voting)
     loader = DataLoader(inference_dataset, batch_size=batch_size, shuffle=False, 
@@ -639,7 +639,7 @@ def subsample_dataset_failure_aware(dataset, models, device, max_samples=None,
     # Validation: counts must sum to dataset size
     assert n_correct + n_incorrect == len(dataset), f"Count error: {n_correct} + {n_incorrect} != {len(dataset)}"
     
-    print(f"  Ensemble evaluation: {n_correct} correct, {n_incorrect} incorrect ({n_incorrect/len(dataset)*100:.1f}% failure rate)")
+    print(f" Ensemble evaluation: {n_correct} correct, {n_incorrect} incorrect ({n_incorrect/len(dataset)*100:.1f}% failure rate)")
     
     # Strategy: Keep as many failures as possible (up to min_failure_ratio * max_samples)
     # Then fill remaining slots with correct predictions
@@ -652,8 +652,8 @@ def subsample_dataset_failure_aware(dataset, models, device, max_samples=None,
         target_incorrect = n_incorrect
         target_correct = max_samples - target_incorrect
         actual_failure_ratio = n_incorrect / max_samples
-        print(f"  Not enough failures to reach target ratio ({min_failure_ratio:.1%})")
-        print(f"  Keeping ALL {n_incorrect} failures ({actual_failure_ratio:.1%} of final set)")
+        print(f" Not enough failures to reach target ratio ({min_failure_ratio:.1%})")
+        print(f" Keeping ALL {n_incorrect} failures ({actual_failure_ratio:.1%} of final set)")
     else:
         # Enough failures - cap at min_failure_ratio (interpreted as maximum)
         if n_incorrect + n_correct <= max_samples:
@@ -666,7 +666,7 @@ def subsample_dataset_failure_aware(dataset, models, device, max_samples=None,
             target_incorrect = min(n_incorrect, max_failures_allowed)
             target_correct = max_samples - target_incorrect
         actual_failure_ratio = target_incorrect / max_samples
-        print(f"  Target: keep {target_incorrect} failures ({actual_failure_ratio:.1%} of final set)")
+        print(f" Target: keep {target_incorrect} failures ({actual_failure_ratio:.1%} of final set)")
     
     # Clamp to available samples
     target_incorrect = min(target_incorrect, n_incorrect)
@@ -677,7 +677,7 @@ def subsample_dataset_failure_aware(dataset, models, device, max_samples=None,
     if actual_total < max_samples and n_correct > target_correct:
         target_correct = min(n_correct, max_samples - target_incorrect)
     
-    print(f"  Target subsampling: {target_correct} correct + {target_incorrect} incorrect = {target_correct + target_incorrect} total")
+    print(f" Target subsampling: {target_correct} correct + {target_incorrect} incorrect = {target_correct + target_incorrect} total")
     
     # Set random seed for reproducibility
     np.random.seed(seed)
@@ -741,9 +741,9 @@ def subsample_dataset_failure_aware(dataset, models, device, max_samples=None,
     final_correct_indices = np.where(final_correct_mask)[0]
     final_incorrect_indices = np.where(~final_correct_mask)[0]
     
-    print(f"  Subsampled calibration: {len(dataset)} → {len(selected_indices)} samples (failure-aware)")
-    print(f"    Final: {len(final_correct_indices)} correct, {len(final_incorrect_indices)} incorrect ({len(final_incorrect_indices)/len(selected_indices)*100:.1f}%)")
-    print(f"    Class distribution: {class_dist}")
+    print(f" Subsampled calibration: {len(dataset)} → {len(selected_indices)} samples (failure-aware)")
+    print(f" Final: {len(final_correct_indices)} correct, {len(final_incorrect_indices)} incorrect ({len(final_incorrect_indices)/len(selected_indices)*100:.1f}%)")
+    print(f" Class distribution: {class_dist}")
     
     return Subset(dataset, selected_indices), final_correct_indices, final_incorrect_indices
 
@@ -1062,7 +1062,7 @@ def apply_random_corruptions(dataset, flag, severity, cache=True, seed=42, retur
         CorruptedDataset wrapper or original dataset if corruption not available
     """
     if not MEDMNISTC_AVAILABLE:
-        print(f"  ⚠️  Cannot apply corruptions - medmnistc not installed")
+        print(f" Cannot apply corruptions - medmnistc not installed")
         return dataset
     
     corruptions = get_available_corruptions(flag)
@@ -1074,8 +1074,8 @@ def apply_random_corruptions(dataset, flag, severity, cache=True, seed=42, retur
             base_flag = 'organamnist'
         
         available_datasets = list(CORRUPTIONS_DS.keys())
-        print(f"  ⚠️  No corruptions defined for '{flag}' in medmnistc")
-        print(f"      Available datasets: {available_datasets}")
+        print(f" No corruptions defined for '{flag}' in medmnistc")
+        print(f" Available datasets: {available_datasets}")
         return dataset
     
     corruption_funcs = list(corruptions.values())
@@ -1088,8 +1088,8 @@ def apply_random_corruptions(dataset, flag, severity, cache=True, seed=42, retur
         if not hasattr(corruption_func, 'rng'):
             corruption_func.rng = np.random.default_rng(seed if seed is not None else 42)
     
-    print(f"  ✓ Applying random corruptions (severity={severity}) to {flag} dataset")
-    print(f"    Available corruptions ({len(corruption_names)}): {', '.join(corruption_names)}")
+    print(f" Applying random corruptions (severity={severity}) to {flag} dataset")
+    print(f" Available corruptions ({len(corruption_names)}): {', '.join(corruption_names)}")
     
     return CorruptedDataset(
         dataset, 
@@ -1118,7 +1118,7 @@ def apply_specific_corruption(dataset, flag, corruption_type, severity, cache=Tr
         CorruptedDataset wrapper or original dataset if corruption not available
     """
     if not MEDMNISTC_AVAILABLE:
-        print(f"  ⚠️  Cannot apply corruption '{corruption_type}' - medmnistc not installed")
+        print(f" Cannot apply corruption '{corruption_type}' - medmnistc not installed")
         return dataset
     
     corruptions = get_available_corruptions(flag)
@@ -1129,18 +1129,18 @@ def apply_specific_corruption(dataset, flag, corruption_type, severity, cache=Tr
             base_flag = 'organamnist'
         
         available_datasets = list(CORRUPTIONS_DS.keys())
-        print(f"  ⚠️  No corruptions defined for '{flag}' in medmnistc")
-        print(f"      Available datasets: {available_datasets}")
+        print(f" No corruptions defined for '{flag}' in medmnistc")
+        print(f" Available datasets: {available_datasets}")
         return dataset
     
     if corruption_type not in corruptions:
         available_corruptions = list(corruptions.keys())
-        print(f"  ⚠️  Corruption '{corruption_type}' not available for {flag}")
-        print(f"      Available corruptions: {available_corruptions}")
+        print(f" Corruption '{corruption_type}' not available for {flag}")
+        print(f" Available corruptions: {available_corruptions}")
         return dataset
     
     corruption_func = corruptions[corruption_type]
-    print(f"  ✓ Applying '{corruption_type}' (severity={severity}) to {flag} dataset")
+    print(f" Applying '{corruption_type}' (severity={severity}) to {flag} dataset")
     
     return CorruptedDataset(
         dataset, 

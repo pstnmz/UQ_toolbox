@@ -69,11 +69,11 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     print(f"Using FailCatcher v{ToolBox.__version__}")
     if new_class_shift:
         print(f"New Class Shift: Evaluating unseen classes (artificial test set)")
-        print(f"  Test = New classes (failures) + Unanimous correct predictions (known classes)")
+        print(f" Test = New classes (failures) + Unanimous correct predictions (known classes)")
     if corruption_severity > 0:
         print(f"Covariate Shift: Random corruptions (severity={corruption_severity}/5)")
-        print(f"  Test set: {'✓ Corrupted' if corrupt_test else '✗ Clean'}")
-        print(f"  Calibration set: {'✓ Corrupted' if corrupt_calib else '✗ Clean'}")
+        print(f" Test set: {'Corrupted' if corrupt_test else 'Clean'}")
+        print(f" Calibration set: {'Corrupted' if corrupt_calib else 'Clean'}")
     print(f"{'='*80}\n")
     
     # Set seeds for reproducibility
@@ -85,7 +85,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     # Enable deterministic algorithms for CUDA
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    print("🔒 Deterministic mode enabled (seed=42)\n")
+    print("Deterministic mode enabled (seed=42)\n")
     
     # Get absolute path to workspace root (UQ_Toolbox/)
     workspace_root = Path(__file__).parent.parent.parent.absolute()
@@ -115,7 +115,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         pass
 
     print(
-        f"🧠 CPU budget: total={cpu_total}, concurrent_processes={concurrent_processes}, "
+        f"CPU budget: total={cpu_total}, concurrent_processes={concurrent_processes}, "
         f"per_process_budget≈{cpu_budget}"
     )
     print(
@@ -150,7 +150,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     # ========================================================================
     # LOAD DATA AND MODELS (medMNIST-specific)
     # ========================================================================
-    print("📦 Loading medMNIST data and models...")
+    print("Loading medMNIST data and models...")
     
     # Transforms
     transform, transform_tta = dataset_utils.get_transforms(color, image_size)
@@ -169,7 +169,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         
         # Apply corruptions if requested
         if corruption_severity > 0 and (corrupt_test or corrupt_calib):
-            print(f"\n🔬 Applying covariate shift corruptions...")
+            print(f"\nApplying covariate shift corruptions...")
             # Map dataset name for corruption (dermamnist-e variants use 'dermamnist')
             if 'dermamnist' in base_flag:
                 corruption_flag = 'dermamnist'
@@ -177,7 +177,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                 corruption_flag = base_flag
             
             if corrupt_test:
-                print(f"  → Corrupting test set (severity={corruption_severity}/5)")
+                print(f" → Corrupting test set (severity={corruption_severity}/5)")
                 test_dataset = dataset_utils.apply_random_corruptions(
                     test_dataset, corruption_flag, corruption_severity, cache=True, seed=42
                 )
@@ -191,7 +191,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                     num_workers=shared_loader_workers, pin_memory=loader_pin_memory
                 )
             if corrupt_calib:
-                print(f"  → Corrupting calibration set (severity={corruption_severity}/5)")
+                print(f" → Corrupting calibration set (severity={corruption_severity}/5)")
                 calib_dataset = dataset_utils.apply_random_corruptions(
                     calib_dataset, corruption_flag, corruption_severity, cache=True, seed=42
                 )
@@ -232,8 +232,8 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         
         # Apply corruptions if requested
         if corruption_severity > 0 and corrupt_test:
-            print(f"\n🔬 Applying covariate shift corruptions...")
-            print(f"  → Corrupting test set (severity={corruption_severity}/5)")
+            print(f"\nApplying covariate shift corruptions...")
+            print(f" → Corrupting test set (severity={corruption_severity}/5)")
             test_dataset = dataset_utils.apply_random_corruptions(
                 test_dataset, flag, corruption_severity, cache=True, seed=42
             )
@@ -275,13 +275,13 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             )
         else:
             raise ValueError("MIDOG dataset only supports new_class_shift mode. Use --new-class-shift flag.")
-    print(f"  Models: {len(models)} folds")
+    print(f" Models: {len(models)} folds")
     # For organamnist: study=train (medMNIST), calib=val (medMNIST)
     # For others: study=80% of (train+val), calib=20% of (train+val)
     study_label = "Train" if flag == 'organamnist' else "Train+val"
     calib_label = "Val" if flag == 'organamnist' else "Calib"
-    print(f"  {study_label}: {len(study_dataset)}, {calib_label}: {len(calib_dataset)}, Test: {len(test_dataset)}")
-    print(f"  Task: {info['task']}, Classes: {len(info['label'])}")
+    print(f" {study_label}: {len(study_dataset)}, {calib_label}: {len(calib_dataset)}, Test: {len(test_dataset)}")
+    print(f" Task: {info['task']}, Classes: {len(info['label'])}")
     
     # ========================================================================
     # EVALUATE MODELS (or load from cache)
@@ -310,13 +310,13 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     # Try to load cached results FIRST
     cache_loaded = False
     if os.path.exists(calib_cache_path) and os.path.exists(test_cache_path):
-        print("\n📦 Loading cached evaluation results...")
+        print("\nLoading cached evaluation results...")
         try:
             calib_cache = np.load(calib_cache_path, allow_pickle=True)
             test_cache = np.load(test_cache_path, allow_pickle=True)
             cache_loaded = True
         except (pickle.UnpicklingError, ValueError, EOFError) as e:
-            print(f"  ⚠️  Cache corrupted ({e.__class__.__name__}), regenerating...")
+            print(f" [WARNING] Cache corrupted ({e.__class__.__name__}), regenerating...")
             # Delete corrupted cache files
             try:
                 os.remove(calib_cache_path)
@@ -345,7 +345,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         
         # For new class shift: override with binary ground truth
         if new_class_shift and hasattr(test_dataset, 'binary_gt'):
-            print("  ✓ Using binary ground truth for new class shift evaluation (from cache)")
+            print(" Using binary ground truth for new class shift evaluation (from cache)")
             y_true = test_dataset.binary_gt
             correct_idx = np.where(y_true == 0)[0]
             incorrect_idx = np.where(y_true == 1)[0]
@@ -363,10 +363,10 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         if 'per_fold_predictions' in test_cache.files:
             per_fold_predictions = test_cache['per_fold_predictions']  # [K, N]
             per_fold_predictions_calib = calib_cache['per_fold_predictions']  # [K, N_calib]
-            print(f"  ✓ Loaded per-fold predictions from cache")
+            print(f" Loaded per-fold predictions from cache")
         else:
             # Old cache format - compute from indiv_scores
-            print(f"  ⚠️  Old cache format detected - computing per-fold predictions...")
+            print(f" [WARNING] Old cache format detected - computing per-fold predictions...")
             # Compute from indiv_scores (still in [N, K, C] format at this point)
             per_fold_predictions = np.argmax(indiv_scores, axis=2).T  # [N, K] → [K, N]
             per_fold_predictions_calib = np.argmax(indiv_scores_calib, axis=2).T  # [N_calib, K] → [K, N_calib]
@@ -377,10 +377,10 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             per_fold_incorrect_idx = [arr for arr in test_cache['per_fold_incorrect_idx']]
             per_fold_correct_idx_calib = [arr for arr in calib_cache['per_fold_correct_idx']]
             per_fold_incorrect_idx_calib = [arr for arr in calib_cache['per_fold_incorrect_idx']]
-            print(f"  ✓ Loaded per-fold correct/incorrect indices from cache")
+            print(f" Loaded per-fold correct/incorrect indices from cache")
         else:
             # Old cache format - need to compute from per_fold_predictions
-            print(f"  ⚠️  Computing per-fold indices from predictions...")
+            print(f" [WARNING] Computing per-fold indices from predictions...")
             per_fold_correct_idx = []
             per_fold_incorrect_idx = []
             per_fold_correct_idx_calib = []
@@ -416,24 +416,24 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         # For new class shift: extract binary_gt from cache and use it as y_true for risk computation
         if new_class_shift and 'binary_gt' in test_cache.files:
             binary_gt = test_cache['binary_gt']
-            print(f"  ✓ Loaded cached results (new class shift mode)")
-            print(f"  Test accuracy: {len(correct_idx) / len(binary_gt):.4f} (failure rate: {np.sum(binary_gt)/len(binary_gt):.4f})")
+            print(f" Loaded cached results (new class shift mode)")
+            print(f" Test accuracy: {len(correct_idx) / len(binary_gt):.4f} (failure rate: {np.sum(binary_gt)/len(binary_gt):.4f})")
             # Override y_true with binary_gt for proper risk computation
             y_true = binary_gt
         else:
-            print(f"  ✓ Loaded cached results")
-            print(f"  Test accuracy: {len(correct_idx) / len(y_true):.4f}")
+            print(f" Loaded cached results")
+            print(f" Test accuracy: {len(correct_idx) / len(y_true):.4f}")
     
     else:
         # No cache - evaluate models
-        print("\n📊 Evaluating ensemble predictions on test set...")
+        print("\nEvaluating ensemble predictions on test set...")
         y_true, y_scores, y_pred, correct_idx, incorrect_idx, indiv_scores_raw, logits = uq.evaluate_models_on_loader(
             models, test_loader, device, return_logits=True
         )
         
         # For new class shift: replace y_true with binary ground truth for failure detection
         if new_class_shift and hasattr(test_dataset, 'binary_gt'):
-            print("  ✓ Using binary ground truth for new class shift evaluation")
+            print(" Using binary ground truth for new class shift evaluation")
             y_true_original = y_true.copy()  # Keep original labels
             y_true = test_dataset.binary_gt  # Binary: 0=correct (known class), 1=failure (new class)
             
@@ -441,16 +441,16 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             # Correct = known class samples (-1 in original labels means new class)
             correct_idx = np.where(y_true == 0)[0]  # Known classes
             incorrect_idx = np.where(y_true == 1)[0]  # New classes (all failures by definition)
-            print(f"  Binary GT: {len(correct_idx)} known class (correct), {len(incorrect_idx)} new class (failures)")
+            print(f" Binary GT: {len(correct_idx)} known class (correct), {len(incorrect_idx)} new class (failures)")
         
         # Calibration set
         y_true_calib, y_scores_calib, y_pred_calib, correct_idx_calib, incorrect_idx_calib, indiv_scores_calib_raw, logits_calib = \
             uq.evaluate_models_on_loader(models, calib_loader, device, return_logits=True)
         
-        print(f"  Test accuracy: {len(correct_idx)/len(y_true):.4f}")
+        print(f" Test accuracy: {len(correct_idx)/len(y_true):.4f}")
         
         # Compute per-fold logits from models
-        print("\n📊 Computing per-fold logits for calibration...")
+        print("\nComputing per-fold logits for calibration...")
         indiv_logits_raw = []  # Will be [N, K, C]
         indiv_logits_calib_raw = []  # Will be [N_calib, K, C]
         
@@ -491,7 +491,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         indiv_logits_calib = np.transpose(indiv_logits_calib_raw, (1, 0, 2))  # [K, N_calib, C]
         
         # Compute per-fold correct/incorrect indices
-        print("\n📊 Computing per-fold correct/incorrect indices...")
+        print("\nComputing per-fold correct/incorrect indices...")
         per_fold_correct_idx = []
         per_fold_incorrect_idx = []
         per_fold_correct_idx_calib = []
@@ -521,14 +521,14 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             per_fold_correct_idx_calib.append(fold_correct_calib)
             per_fold_incorrect_idx_calib.append(fold_incorrect_calib)
             
-            print(f"  Fold {fold_idx}: {len(fold_correct)} correct, {len(fold_incorrect)} incorrect (test)")
+            print(f" Fold {fold_idx}: {len(fold_correct)} correct, {len(fold_incorrect)} incorrect (test)")
         
         # Compute per-fold predictions [M, N] for caching
         per_fold_predictions = np.argmax(indiv_scores, axis=2)  # [K, N, C] → [K, N]
         per_fold_predictions_calib = np.argmax(indiv_scores_calib, axis=2)  # [K, N_calib, C] → [K, N_calib]
         
         # Save to cache for next time
-        print("\n💾 Saving evaluation results to cache...")
+        print("\nSaving evaluation results to cache...")
         np.savez_compressed(
             calib_cache_path,
             y_true=y_true_calib,
@@ -560,7 +560,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         if new_class_shift and hasattr(test_dataset, 'binary_gt'):
             cache_data['binary_gt'] = test_dataset.binary_gt  # Save binary ground truth for risk computation
         np.savez_compressed(test_cache_path, **cache_data)
-        print(f"  ✓ Cached to {cache_dir}")
+        print(f" Cached to {cache_dir}")
     
     # ========================================================================
     # CREATE FAILCATCHER DETECTOR
@@ -585,7 +585,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     # Set per-fold predictions to avoid redundant vanilla inference
     # This is especially important when running multiple UQ methods
     detector.set_per_fold_predictions(per_fold_predictions)
-    print("  ✓ Pre-cached per-fold predictions - vanilla inference will be skipped")
+    print(" Pre-cached per-fold predictions - vanilla inference will be skipped")
 
     # Separate detector for calibration-only uncertainty statistics.
     # We do NOT save calibration uncertainties; we only persist mean/std summaries.
@@ -648,9 +648,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     results = {}
     
     if 'MSR' in methods:
-        print("\n🔍 Running MSR...")
+        print("\nRunning MSR...")
         mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f"  Mode: {mode_str} evaluation")
+        print(f" Mode: {mode_str} evaluation")
         uncertainties, metrics = detector.run_msr(
             y_scores, y_true, 
             indiv_scores=indiv_scores if per_fold_eval else None,
@@ -660,10 +660,10 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         )
         results['MSR'] = metrics
         if 'auroc_f_mean' in metrics:
-            print(f"  AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
+            print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
                   f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
         else:
-            print(f"  AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
         # Calibration-distribution uncertainty stats (means/stds only)
         calib_detector.run_msr(
@@ -676,9 +676,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         _store_calibration_stats('MSR')
     
     if 'MSR_calibrated' in methods:
-        print(f"\n🔍 Running MSR-{calib_method}...")
+        print(f"\nRunning MSR-{calib_method}...")
         mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f"  Mode: {mode_str} evaluation")
+        print(f" Mode: {mode_str} evaluation")
         uncertainties, metrics = detector.run_msr_calibrated(
             y_scores, y_true, y_scores_calib, y_true_calib,
             logits, logits_calib,
@@ -693,10 +693,10 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         )
         results[f'MSR_{calib_method}'] = metrics
         if 'auroc_f_mean' in metrics:
-            print(f"  AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
+            print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
                   f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
         else:
-            print(f"  AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
         # Calibration-distribution uncertainty stats (means/stds only)
         calib_detector.run_msr_calibrated(
@@ -714,9 +714,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         _store_calibration_stats('MSR_calibrated')
     
     if 'MLS' in methods:
-        print("\n🔍 Running MLS (Maximum Logit Score)...")
+        print("\nRunning MLS (Maximum Logit Score)...")
         mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f"  Mode: {mode_str} evaluation")
+        print(f" Mode: {mode_str} evaluation")
         uncertainties, metrics = detector.run_mls(
             logits, y_true,
             indiv_logits=indiv_logits if per_fold_eval else None,
@@ -724,10 +724,10 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         )
         results['MLS'] = metrics
         if 'auroc_f_mean' in metrics:
-            print(f"  AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
+            print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
                   f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
         else:
-            print(f"  AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
         calib_detector.run_mls(
             logits_calib, y_true_calib,
@@ -737,10 +737,10 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         _store_calibration_stats('MLS')
     
     if 'Ensembling' in methods:
-        print("\n🔍 Running Ensemble STD...")
+        print("\nRunning Ensemble STD...")
         uncertainties, metrics = detector.run_ensemble(indiv_scores, y_true)
         results['Ensemble'] = metrics
-        print(f"  AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
         calib_detector.run_ensemble(indiv_scores_calib, y_true_calib)
         _store_calibration_stats('Ensembling')
@@ -750,10 +750,10 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         tta_gps_batch_size = batch_size
         if model_backbone == 'vit_b_16' and batch_size > 3000:
             tta_gps_batch_size = 3000
-            print(f"  ℹ️  Using reduced batch size {tta_gps_batch_size} for TTA/GPS with ViT (avoids OOM)")
-        print("\n🔍 Running TTA...")
+            print(f" Note: Using reduced batch size {tta_gps_batch_size} for TTA/GPS with ViT (avoids OOM)")
+        print("\nRunning TTA...")
         mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f"  Mode: {mode_str} evaluation")
+        print(f" Mode: {mode_str} evaluation")
         uncertainties, metrics = detector.run_tta(
             test_dataset_tta, y_true,
             image_size=image_size,
@@ -763,7 +763,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             seed=42
         )
         results['TTA'] = metrics
-        print(f"  AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
         calib_detector.run_tta(
             calib_dataset_tta, y_true_calib,
@@ -776,9 +776,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         _store_calibration_stats('TTA')
     
     if 'TTA_calib' in methods:
-        print("\n🔍 Running TTA Calibration Caching (BetterRandAugment)...")
+        print("\nRunning TTA Calibration Caching (BetterRandAugment)...")
         if gps_calib_samples is not None:
-            print(f"  Subsampling strategy: Keep {gps_calib_samples} samples with min {min_failure_ratio:.0%} failures")
+            print(f" Subsampling strategy: Keep {gps_calib_samples} samples with min {min_failure_ratio:.0%} failures")
         setup_name = setup if setup else 'standard'
         # Include sample count in folder name if subsampling occurs
         folder_suffix = f'_N{gps_calib_samples}' if gps_calib_samples is not None else ''
@@ -805,7 +805,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         # correct_idx_calib_subsampled and incorrect_idx_calib_subsampled 
         # are already computed by subsample_dataset_failure_aware()
         # They are 0-indexed positions within the subsampled dataset
-        print(f"  GPS will use: {len(correct_idx_calib_subsampled)} correct, {len(incorrect_idx_calib_subsampled)} incorrect indices")
+        print(f" GPS will use: {len(correct_idx_calib_subsampled)} correct, {len(incorrect_idx_calib_subsampled)} incorrect indices")
         
         # Determine normalization parameters based on color
         # Note: nb_channels should always be 3 because models expect 3-channel input
@@ -820,9 +820,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         
         # Use MONAI cache with full rate for speed
         # Cache is stored in RAM (CPU memory), not GPU, so it's safe
-        print(f"  Original calibration set size: {len(calib_dataset_tta)}")
-        print(f"  Subsampled calibration set size: {len(calib_dataset_tta_subsampled)}")
-        print(f"  Batch size: {aug_batch_size}")
+        print(f" Original calibration set size: {len(calib_dataset_tta)}")
+        print(f" Subsampled calibration set size: {len(calib_dataset_tta_subsampled)}")
+        print(f" Batch size: {aug_batch_size}")
         
         # Cache augmentation predictions on calibration dataset
         aug_folder = detector.run_augmentation_calibration_caching(
@@ -843,19 +843,19 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             dataloader_workers=max(2, min(6, shared_loader_workers // 2)),  # Keep conservative for parallel runs
             dataloader_prefetch=2  # Conservative prefetch to avoid OOM
         )
-        print(f"  ✓ Augmentation predictions cached in: {aug_folder}")
+        print(f" Augmentation predictions cached in: {aug_folder}")
         # Note: TTA_calib doesn't produce uncertainty scores, it only caches predictions
         # The cached predictions are used by GPS method
     
 
     if 'GPS' in methods:
-        print("\n🔍 Running GPS...")
+        print("\nRunning GPS...")
     
         # TTA/GPS batch size - also needs reduction for ViT on large datasets
         tta_gps_batch_size = batch_size
         if model_backbone == 'vit_b_16' and batch_size > 3000:
             tta_gps_batch_size = 3000
-            print(f"  ℹ️  Using reduced batch size {tta_gps_batch_size} for TTA/GPS with ViT (avoids OOM)")
+            print(f" Note: Using reduced batch size {tta_gps_batch_size} for TTA/GPS with ViT (avoids OOM)")
         
         # CRITICAL: Reset test_dataset_tta transform to original state
         # TTA may have modified it, and GPS needs clean dataset
@@ -897,10 +897,10 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             # Use the subsampled indices computed during TTA_calib
             gps_correct_idx = correct_idx_calib_subsampled.tolist()
             gps_incorrect_idx = incorrect_idx_calib_subsampled.tolist()
-            print(f"  Using subsampled calibration indices from TTA_calib")
+            print(f" Using subsampled calibration indices from TTA_calib")
         else:
             # GPS running independently - need to subsample and compute indices
-            print(f"  TTA_calib not run - computing subsampled calibration indices...")
+            print(f" TTA_calib not run - computing subsampled calibration indices...")
             calib_dataset_tta_subsampled, gps_correct_idx, gps_incorrect_idx = \
                 dataset_utils.subsample_dataset_failure_aware(
                     dataset=calib_dataset_tta,
@@ -917,7 +917,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             gps_incorrect_idx = gps_incorrect_idx.tolist()
 
         mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f"  Mode: {mode_str} evaluation")
+        print(f" Mode: {mode_str} evaluation")
         uncertainties, metrics = detector.run_gps(
             test_dataset_tta, y_true,
             aug_folder=aug_folder,
@@ -929,7 +929,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             per_fold_evaluation=per_fold_eval
         )
         results['GPS'] = metrics
-        print(f"  AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
         calib_detector.run_gps(
             calib_dataset_tta, y_true_calib,
@@ -944,7 +944,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         _store_calibration_stats('GPS')
     
     if 'KNN_Raw' in methods:
-        print("\n🔍 Running KNN-Raw...")
+        print("\nRunning KNN-Raw...")
 
         # Adaptive batch size for KNN methods based on model architecture
         # KNN requires full forward passes on large datasets which can OOM
@@ -953,9 +953,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         # Further reduce for ViT models which consume significantly more memory
         if model_backbone == 'vit_b_16':
             knn_batch_size = min(batch_size, 4000)  # Reduce to 4000 for ViT to avoid OOM
-            print(f"  ℹ️  Using reduced batch size {knn_batch_size} for KNN with ViT (avoids OOM)")
+            print(f" Note: Using reduced batch size {knn_batch_size} for KNN with ViT (avoids OOM)")
         elif knn_batch_size < batch_size:
-            print(f"  ℹ️  Using reduced batch size {knn_batch_size} for KNN (avoids OOM on large datasets)")
+            print(f" Note: Using reduced batch size {knn_batch_size} for KNN (avoids OOM on large datasets)")
         
         # Create reduced batch size test loader if needed
         if knn_batch_size < batch_size:
@@ -978,18 +978,12 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             knn_calib_loader = calib_loader  # Use original loader if batch size is same
             
         mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f"  Mode: {mode_str} evaluation")
+        print(f" Mode: {mode_str} evaluation")
         
-        # For new_class_shift: use fixed k=1000 (no calibration set available)
-        # For other shifts: use grid search on calibration set
-        # if new_class_shift:
-        #     k = 1000
-        #     k_grid = None
-        #     print(f"  New class shift detected: Using fixed k={k} (no calibration)")
-        # else:
+        # k is selected via grid search on the calibration set for all evaluation scenarios.
         k = None
         k_grid = [1, 5, 10, 20, 50, 100, 200]
-        print(f"  Using k grid search: {k_grid}")
+        print(f" Using k grid search: {k_grid}")
         
         uncertainties, metrics = detector.run_knn_raw(
             test_loader=knn_test_loader,
@@ -1006,10 +1000,10 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         
         # Print results
         if 'auroc_f_mean' in metrics:
-            print(f"  AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
+            print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
                   f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
         else:
-            print(f"  AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
         k_for_calib = metrics['k_selected'] if 'k_selected' in metrics else (5 if k is None else k)
         calib_detector.run_knn_raw(
@@ -1026,9 +1020,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         _store_calibration_stats('KNN_Raw')
     
     if 'KNN_SHAP' in methods:
-        print("\n🔍 Running KNN-SHAP...")
+        print("\nRunning KNN-SHAP...")
         mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f"  Mode: {mode_str} evaluation")
+        print(f" Mode: {mode_str} evaluation")
         parallel_mode = torch.cuda.device_count() >= 3
         n_jobs = 3 if parallel_mode else 1
         
@@ -1047,7 +1041,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             per_fold_evaluation=per_fold_eval
         )
         results['KNN_SHAP'] = metrics
-        print(f"  AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
         calib_detector.run_knn_shap(
             calib_loader=calib_loader,
@@ -1072,9 +1066,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     # which can cause CUDA RNG issues with subsequent DataLoader forking
     # in methods like GPS/TTA that use multiprocessing workers
     if 'MCDropout' in methods:
-        print("\n🔍 Running MC Dropout (running last to avoid interference)...")
+        print("\nRunning MC Dropout (running last to avoid interference)...")
         mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f"  Mode: {mode_str} evaluation")
+        print(f" Mode: {mode_str} evaluation")
 
         mcd_num_workers = shared_loader_workers
         mcd_pin_memory = loader_pin_memory
@@ -1096,7 +1090,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             prefetch_factor=mcd_prefetch_factor
         )
         results['MCDropout'] = metrics
-        print(f"  AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
         calib_detector.run_mcdropout(
             calib_dataset, y_true_calib,
@@ -1158,12 +1152,12 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
 
     if 'ZScore_Aggregation_per_fold' in methods:
         if not per_fold_eval:
-            print("\nℹ️  Skipping ZScore_Aggregation_per_fold (requires --per-fold-eval)")
+            print("\nNote: Skipping ZScore_Aggregation_per_fold (requires --per-fold-eval)")
         elif len(aggregation_methods_per_fold_calib) < 2:
-            print("\nℹ️  Skipping ZScore_Aggregation_per_fold (need at least 2 methods with calibration mean/std)")
+            print("\nNote: Skipping ZScore_Aggregation_per_fold (need at least 2 methods with calibration mean/std)")
         else:
-            print("\n🔍 Running ZScore_Aggregation_per_fold...")
-            print(f"  Sources: {aggregation_methods_per_fold_calib}")
+            print("\nRunning ZScore_Aggregation_per_fold...")
+            print(f" Sources: {aggregation_methods_per_fold_calib}")
             _, agg_pf_metrics = detector.run_zscore_aggregation_per_fold(
                 method_names=aggregation_methods_per_fold_calib,
                 means=calib_means_per_fold,
@@ -1178,14 +1172,14 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                     f"AUGRC: {agg_pf_metrics['augrc_mean']:.6f}±{agg_pf_metrics['augrc_std']:.6f}"
                 )
             else:
-                print(f"  AUROC: {agg_pf_metrics['auroc_f']:.4f}, AUGRC: {agg_pf_metrics['augrc']:.6f}")
+                print(f" AUROC: {agg_pf_metrics['auroc_f']:.4f}, AUGRC: {agg_pf_metrics['augrc']:.6f}")
 
     if 'ZScore_Aggregation_ensemble' in methods:
         if len(aggregation_methods_ensemble_calib) < 2:
-            print("\nℹ️  Skipping ZScore_Aggregation_ensemble (need at least 2 methods with calibration mean/std)")
+            print("\nNote: Skipping ZScore_Aggregation_ensemble (need at least 2 methods with calibration mean/std)")
         else:
-            print("\n🔍 Running ZScore_Aggregation_ensemble...")
-            print(f"  Sources: {aggregation_methods_ensemble_calib}")
+            print("\nRunning ZScore_Aggregation_ensemble...")
+            print(f" Sources: {aggregation_methods_ensemble_calib}")
             _, agg_ens_metrics = detector.run_zscore_aggregation_ensemble(
                 method_names=aggregation_methods_ensemble_calib,
                 means=calib_means_ensemble,
@@ -1194,11 +1188,11 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                 aggregation_name='ZScore_Aggregation_ensemble'
             )
             results['ZScore_Aggregation_ensemble'] = agg_ens_metrics
-            print(f"  AUROC: {agg_ens_metrics['auroc_f']:.4f}, AUGRC: {agg_ens_metrics['augrc']:.6f}")
+            print(f" AUROC: {agg_ens_metrics['auroc_f']:.4f}, AUGRC: {agg_ens_metrics['augrc']:.6f}")
 
     if calibration_zscore_stats:
         detector._results['Calibration_ZScore_Stats'] = calibration_zscore_stats
-        print("\n💾 Stored calibration z-score stats (means/stds only) for later aggregation.")
+        print("\nStored calibration z-score stats (means/stds only) for later aggregation.")
     
     # ========================================================================
     # SAVE RESULTS AND FIGURES (via FailureDetector)
@@ -1357,16 +1351,16 @@ if __name__ == '__main__':
         print(f"\nAvailable corruptions for {args.flag}:")
         corruptions = dataset_utils.list_available_corruptions(args.flag)
         if corruptions:
-            print(f"  Random corruptions will be applied from this pool:")
+            print(f" Random corruptions will be applied from this pool:")
             for c in sorted(corruptions):
-                print(f"    - {c}")
+                print(f" - {c}")
             print(f"\n  Usage example (random corruptions):")
-            print(f"    python run_medmnist_benchmark.py --flag {args.flag} --corruption-severity 3 --corrupt-test")
+            print(f" python run_medmnist_benchmark.py --flag {args.flag} --corruption-severity 3 --corrupt-test")
             print(f"\n  Each sample gets a random corruption from the pool at the specified severity.")
         else:
-            print(f"  No corruptions available for {args.flag}")
+            print(f" No corruptions available for {args.flag}")
             if not dataset_utils.MEDMNISTC_AVAILABLE:
-                print(f"  (medmnistc is not installed - run: pip install medmnistc)")
+                print(f" (medmnistc is not installed - run: pip install medmnistc)")
         sys.exit(0)
     
     run_medmnist_benchmark(

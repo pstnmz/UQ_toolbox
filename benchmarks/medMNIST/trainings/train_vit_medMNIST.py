@@ -1,3 +1,19 @@
+"""Train a ViT-B/16 with 5-fold cross-validation on a medMNIST dataset.
+
+For each CV fold the script:
+  1. Builds MONAI-cached train/val DataLoaders (optional RandAugment at runtime).
+  2. Fine-tunes a ViT-B/16 (ImageNet pre-weights, with optional MC-Dropout head)
+     using cross-entropy / BCE loss, a cosine-annealing LR scheduler, and early
+     stopping on validation accuracy.
+  3. Saves the fold checkpoint and, after all folds, writes JSON results summaries.
+
+Run via the batch launcher (``launcher_vit_training.py``) or directly::
+
+    python train_vit_medMNIST.py \\
+        --flag breastmnist --color False \\
+        --batch_size 128 --num_epochs 100 \\
+        --use_randaugment True --use_dropout False
+"""
 import sys
 import os
 # Add parent directory to path to import utils
@@ -31,10 +47,6 @@ parser.add_argument("--learning_rate", type=float, default=0.0001, help="Learnin
 parser.add_argument("--cuda", type=str, default="cuda:2", help="CUDA device string")
 parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
 args = parser.parse_args()
-
-# override defaults with CLI args
-cuda = args.cuda
-num_epochs = args.num_epochs
 
 default_flags = ['pneumoniamnist', 'breastmnist']
 default_colors = [False, False]

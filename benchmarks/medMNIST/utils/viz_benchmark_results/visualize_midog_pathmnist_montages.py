@@ -229,7 +229,7 @@ def main():
     metadata, midogpp_json = load_midog_metadata()
     tumor_types_map = metadata.get('tumor_types', {})
     
-    print(f"   - Tumor types: {tumor_types_map}")
+    print(f" - Tumor types: {tumor_types_map}")
     patches_by_class = get_patches_by_class(MIDOG_PATCHES_DIR, midogpp_json, tumor_types_map)
     
     # Sample patches for visualization
@@ -238,7 +238,7 @@ def main():
         if patch_paths:
             sampled_paths = random.sample(patch_paths, min(SAMPLES_PER_CLASS, len(patch_paths)))
             midog_samples[class_id] = sampled_paths
-            print(f"   - Class {class_id} ({MIDOG_CLASSES[class_id]}): {len(patch_paths)} patches available, sampled {len(sampled_paths)}")
+            print(f" - Class {class_id} ({MIDOG_CLASSES[class_id]}): {len(patch_paths)} patches available, sampled {len(sampled_paths)}")
     
     print("\n2. Creating MIDOG++ montage...")
     fig_midog = create_montage(
@@ -255,12 +255,12 @@ def main():
     pathmnist_dataset = load_pathmnist_data()
     
     if pathmnist_dataset:
-        print(f"   - Dataset size: {len(pathmnist_dataset)} samples")
+        print(f" - Dataset size: {len(pathmnist_dataset)} samples")
         print("\n4. Sampling images from PathMNIST...")
         pathmnist_samples = sample_images_per_class(pathmnist_dataset, 9, SAMPLES_PER_CLASS)
         
         for class_id, images in pathmnist_samples.items():
-            print(f"   - Class {class_id} ({PATHMNIST_CLASSES[class_id]}): {len(images)} samples")
+            print(f" - Class {class_id} ({PATHMNIST_CLASSES[class_id]}): {len(images)} samples")
         
         print("\n5. Creating PathMNIST montage...")
         fig_pathmnist = create_montage(
@@ -270,7 +270,7 @@ def main():
             figsize=(20, 18)
         )
     else:
-        print("   - Skipping PathMNIST (medmnist not available)")
+        print(" - Skipping PathMNIST (medmnist not available)")
     
     # ========================
     # Save and Display
@@ -281,12 +281,12 @@ def main():
     print("\n6. Saving figures...")
     midog_path = os.path.join(output_dir, "midog_montage.png")
     fig_midog.savefig(midog_path, dpi=150, bbox_inches='tight')
-    print(f"   - MIDOG++ montage saved: {midog_path}")
+    print(f" - MIDOG++ montage saved: {midog_path}")
     
     if pathmnist_dataset:
         pathmnist_path = os.path.join(output_dir, "pathmnist_montage.png")
         fig_pathmnist.savefig(pathmnist_path, dpi=150, bbox_inches='tight')
-        print(f"   - PathMNIST montage saved: {pathmnist_path}")
+        print(f" - PathMNIST montage saved: {pathmnist_path}")
     
     print("\n7. Displaying figures...")
     plt.show()

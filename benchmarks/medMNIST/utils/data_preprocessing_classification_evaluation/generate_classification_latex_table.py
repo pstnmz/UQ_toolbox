@@ -354,9 +354,9 @@ def main():
     
     print(f"\nLaTeX table saved to: {output_file}")
     print("\nTable structure:")
-    print(f"  Single table with all {len(DATASETS)} datasets stacked vertically")
-    print(f"  Columns: Models (2) × Setups (4) × (Fold/Ens) = 16 + 1 metric column")
-    print(f"  Rows: One subtable per dataset, with Shifts × Metrics (2) rows each")
+    print(f" Single table with all {len(DATASETS)} datasets stacked vertically")
+    print(f" Columns: Models (2) × Setups (4) × (Fold/Ens) = 16 + 1 metric column")
+    print(f" Rows: One subtable per dataset, with Shifts × Metrics (2) rows each")
     print("\nNote: Population Shifts only show data for DermaMNIST and OrganAMNIST (AMOS22)")
 
 

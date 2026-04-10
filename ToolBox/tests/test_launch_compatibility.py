@@ -29,18 +29,18 @@ def test_launch_imports():
                 missing.append(func)
         
         if missing:
-            print(f"❌ Missing functions: {missing}")
+            print(f"[ERROR] Missing functions: {missing}")
             return False
         
-        print("✅ All launch_uq_methods.py imports available!")
+        print("[OK] All launch_uq_methods.py imports available!")
         return True
         
     except Exception as e:
-        print(f"❌ Import error: {e}")
+        print(f"[ERROR] Import error: {e}")
         return False
 
 if __name__ == "__main__":
     if test_launch_imports():
-        print("\n🎉 launch_uq_methods.py should work without changes!")
+        print("\nlaunch_uq_methods.py should work without changes!")
     else:
-        print("\n⚠️  Need to fix imports before running launch_uq_methods.py")
+        print("\n[WARNING] Need to fix imports before running launch_uq_methods.py")

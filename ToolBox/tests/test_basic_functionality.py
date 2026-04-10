@@ -35,8 +35,8 @@ def test_tta_basic():
     # stds is a list, not a numpy array
     assert len(stds) == 10, f"Expected 10 samples, got {len(stds)}"
     assert all(isinstance(s, (float, int)) for s in stds), "Stds should be numeric"
-    print(f"  Computed stds for 10 samples: mean={np.mean(stds):.4f}")
-    print("✅ TTA works!")
+    print(f" Computed stds for 10 samples: mean={np.mean(stds):.4f}")
+    print("[OK] TTA works!")
 
 def test_ensemble_basic():
     """Test ensemble with dummy data."""
@@ -56,7 +56,7 @@ def test_ensemble_basic():
     stds = ensemble.compute(models, loader, device)
     
     assert stds.shape == (10,), f"Expected shape (10,), got {stds.shape}"
-    print("✅ Ensemble works!")
+    print("[OK] Ensemble works!")
 
 def test_distance_basic():
     """Test distance method with dummy data."""
@@ -76,7 +76,7 @@ def test_distance_basic():
     dists = distance_method.compute([model], loader, device)
     
     assert dists.shape == (10,), f"Expected shape (10,), got {dists.shape}"
-    print("✅ Distance method works!")
+    print("[OK] Distance method works!")
 
 def test_visualization_basic():
     """Test visualization functions don't crash."""
@@ -88,18 +88,18 @@ def test_visualization_basic():
     
     fpr, tpr, auc = roc_curve_UQ_method_computation(correct, incorrect)
     assert 0 <= auc <= 1, f"AUC should be in [0,1], got {auc}"
-    print(f"  AUC computed: {auc:.3f}")
+    print(f" AUC computed: {auc:.3f}")
     
     # Test plotting (don't show, just ensure it runs)
     import matplotlib
     matplotlib.use('Agg')  # Non-interactive backend
     UQ_method_plot(correct, incorrect, "Test Metric", "Test Plot", swarmplot=False)
     
-    print("✅ Visualization works!")
+    print("[OK] Visualization works!")
 
 if __name__ == "__main__":
     test_tta_basic()
     test_ensemble_basic()
     test_distance_basic()
     test_visualization_basic()
-    print("\n🎉 All basic tests passed! Ready for real data.")
+    print("\nAll basic tests passed! Ready for real data.")

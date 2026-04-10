@@ -65,7 +65,7 @@ class Timer:
     def __exit__(self, *args):
         self.elapsed = time.perf_counter() - self.start_time
         if self.name:
-            print(f"⏱️  {self.name}: {self.elapsed:.2f}s")
+            print(f"{self.name}: {self.elapsed:.2f}s")
 
 
 class FailureDetector:
@@ -139,7 +139,7 @@ class FailureDetector:
             per_fold_predictions: Per-fold predictions [M, N] where M = num_folds, N = num_samples
         """
         self._per_fold_predictions_cache = per_fold_predictions
-        print(f"  ✓ Set per-fold predictions cache {per_fold_predictions.shape}")
+        print(f" Set per-fold predictions cache {per_fold_predictions.shape}")
     
     def set_test_predictions(
         self,
@@ -536,7 +536,7 @@ class FailureDetector:
             return self._per_fold_predictions_cache
         
         # Compute via vanilla inference
-        print("  Computing per-fold predictions (vanilla inference, no augmentations)...")
+        print(" Computing per-fold predictions (vanilla inference, no augmentations)...")
         predictions_per_fold = []
         test_loader = DataLoader(self.test_dataset, batch_size=batch_size, shuffle=False)
         
@@ -556,7 +556,7 @@ class FailureDetector:
             predictions_per_fold.append(np.concatenate(fold_preds))
         
         self._per_fold_predictions_cache = np.array(predictions_per_fold)  # [M, N]
-        print(f"    ✓ Cached per-fold predictions [{len(self.models)} folds × {len(predictions_per_fold[0])} samples]")
+        print(f" Cached per-fold predictions [{len(self.models)} folds × {len(predictions_per_fold[0])} samples]")
         return self._per_fold_predictions_cache
     
     def run_msr(
@@ -1152,7 +1152,7 @@ class FailureDetector:
         # Generate time-based seed if not provided (for non-deterministic augmentations)
         if seed is None:
             seed = int(time.time_ns() % (2**31))  # Use nanosecond timestamp modulo 2^31
-            print(f"  Using random seed for augmentations: {seed}")
+            print(f" Using random seed for augmentations: {seed}")
         
         timer = Timer("TTA computation")
         with timer:
@@ -1300,11 +1300,11 @@ class FailureDetector:
             ...     test_dataset, y_true, aug_folder, correct_idx, incorrect_idx
             ... )
         """
-        print(f"\n🔄 Caching augmentation predictions for GPS...")
-        print(f"  Output folder: {aug_folder}")
-        print(f"  Calibration set size: {len(dataset)}")
-        print(f"  Policies: {num_policies}, N={N}, M={M}")
-        print(f"  MONAI cache: {use_monai_cache}, Cache rate: {cache_rate}")
+        print(f"\n Caching augmentation predictions for GPS...")
+        print(f" Output folder: {aug_folder}")
+        print(f" Calibration set size: {len(dataset)}")
+        print(f" Policies: {num_policies}, N={N}, M={M}")
+        print(f" MONAI cache: {use_monai_cache}, Cache rate: {cache_rate}")
         
         timer = Timer("Augmentation caching")
         with timer:
@@ -1332,7 +1332,7 @@ class FailureDetector:
         # Verify files were created
         import glob
         npz_files = glob.glob(os.path.join(aug_folder, f"N{N}_M{M}_*.npz"))
-        print(f"✓ Cached {len(npz_files)} augmentation prediction files")
+        print(f"Cached {len(npz_files)} augmentation prediction files")
         
         if len(npz_files) == 0:
             raise RuntimeError(f"No .npz files created in {aug_folder}")
@@ -1416,10 +1416,10 @@ class FailureDetector:
                 cache_file = os.path.join(cache_dir, f'gps_policies_{cache_key}.pkl')
                 
                 if os.path.exists(cache_file):
-                    print(f"  Loading cached GPS policies...")
+                    print(f" Loading cached GPS policies...")
                     with open(cache_file, 'rb') as f:
                         gps.policies = pickle.load(f)
-                    print(f"  ✓ Loaded {len(gps.policies)} policy groups from cache")
+                    print(f" Loaded {len(gps.policies)} policy groups from cache")
                 else:
                     gps.search_policies(
                         num_workers=num_workers,
@@ -1429,7 +1429,7 @@ class FailureDetector:
                     )
                     with open(cache_file, 'wb') as f:
                         pickle.dump(gps.policies, f)
-                    print(f"  ✓ Cached {len(gps.policies)} policy groups")
+                    print(f" Cached {len(gps.policies)} policy groups")
             else:
                 gps.search_policies(
                     num_workers=num_workers,
@@ -1443,7 +1443,7 @@ class FailureDetector:
             # This is consistent with TTA but uses ensemble-optimized policies from search
             
             print(f"\n  Applying {len(gps.policies)} selected policies to test set...")
-            print(f"  Computing per-model uncertainties, then averaging: avg(std(models))...")
+            print(f" Computing per-model uncertainties, then averaging: avg(std(models))...")
             
             # CRITICAL: Reset random state before applying augmentations for reproducibility
             # Augmentation operations (Rotate, ShearX, etc.) use random.random() internally
@@ -1557,7 +1557,7 @@ class FailureDetector:
             if calib_loader is None or y_true_calib is None:
                 raise ValueError("calib_loader and y_true_calib required for hyperparameter tuning")
             
-            print(f"  🔍 Grid search for k in {k_grid}...")
+            print(f" Grid search for k in {k_grid}...")
             timer_tuning = Timer("Hyperparameter tuning")
             
             with timer_tuning:
@@ -1599,8 +1599,8 @@ class FailureDetector:
                 
                 # Check if we have failures on calibration set
                 if len(incorrect_idx_calib) == 0:
-                    print(f"  ⚠️  WARNING: Perfect accuracy on calibration set - cannot tune hyperparameters!")
-                    print(f"              Using default k=5 (no failures to optimize against)")
+                    print(f" [WARNING] WARNING: Perfect accuracy on calibration set - cannot tune hyperparameters!")
+                    print(f" Using default k=5 (no failures to optimize against)")
                     k_selected = 5  # Use k=5 as default for perfect models
                     best_auroc = None  # No AUROC computed
                 else:
@@ -1639,7 +1639,7 @@ class FailureDetector:
                         # Higher uncertainty = more likely to fail → invert for AUROC
                         auroc_calib = roc_auc_score(1 - is_correct_calib, uncertainties_calib)
                         
-                        print(f"    k={k_candidate}: AUROC={auroc_calib:.4f}")
+                        print(f" k={k_candidate}: AUROC={auroc_calib:.4f}")
                         
                         if auroc_calib > best_auroc:
                             best_auroc = auroc_calib
@@ -1649,7 +1649,7 @@ class FailureDetector:
             
             # Print selection result after timer exits
             if best_auroc is not None:
-                print(f"  ✓ Selected k={k_selected} (AUROC={best_auroc:.4f}) in {timer_tuning.elapsed:.2f}s")
+                print(f" Selected k={k_selected} (AUROC={best_auroc:.4f}) in {timer_tuning.elapsed:.2f}s")
         
         # Fit final model with selected k
         with timer:
@@ -1931,7 +1931,7 @@ class FailureDetector:
             metrics_file = os.path.join(output_dir, f'all_metrics_{flag}{config_suffix}_{timestamp}.npz')
             np.savez_compressed(metrics_file, **self._uncertainties)
             saved_paths['metrics_file'] = metrics_file
-            print(f"\n💾 All metric values saved to: {metrics_file}")
+            print(f"\nAll metric values saved to: {metrics_file}")
         
         # Generate and save evaluation plots for each method
         if self._uncertainties and self._test_predictions_cache is not None:
@@ -1945,7 +1945,7 @@ class FailureDetector:
             per_fold_correct_idx = self._test_predictions_cache.get('per_fold_correct_idx')
             per_fold_incorrect_idx = self._test_predictions_cache.get('per_fold_incorrect_idx')
             
-            print(f"\n📊 Generating evaluation plots...")
+            print(f"\nGenerating evaluation plots...")
             for method_name, metric_values in self._uncertainties.items():
                 # Skip per-fold entries (they're paired with main entries)
                 if (method_name.endswith('_per_fold') or 
@@ -1988,12 +1988,12 @@ class FailureDetector:
                         per_fold_correct_idx=per_fold_correct_idx,
                         per_fold_incorrect_idx=per_fold_incorrect_idx
                     )
-                    print(f"  ✓ {method_name}: {len(fig_paths)} plots saved")
+                    print(f" {method_name}: {len(fig_paths)} plots saved")
                 except Exception as e:
-                    print(f"  ⚠️  Failed to generate plots for {method_name}: {e}")
+                    print(f" [WARNING] Failed to generate plots for {method_name}: {e}")
             
             saved_paths['figures_dir'] = figures_dir
-            print(f"✓ Figures saved to: {figures_dir}")
+            print(f"Figures saved to: {figures_dir}")
         
         # Save JSON summary
         if self._results and self._test_predictions_cache is not None:
@@ -2018,6 +2018,6 @@ class FailureDetector:
                 json.dump(summary, f, indent=2)
             
             saved_paths['summary_file'] = summary_file
-            print(f"\n💾 Results summary saved to: {summary_file}")
+            print(f"\nResults summary saved to: {summary_file}")
         
         return saved_paths

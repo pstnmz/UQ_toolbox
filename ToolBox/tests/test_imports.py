@@ -14,7 +14,7 @@ def test_backward_compatible_imports():
     assert hasattr(uq, 'GPSMethod')
     assert hasattr(uq, 'EnsembleSTDMethod')
     
-    print("✅ Backward compatible imports working!")
+    print("[OK] Backward compatible imports working!")
 
 def test_new_modular_imports():
     """Test new import style works."""
@@ -25,7 +25,7 @@ def test_new_modular_imports():
     assert TTAMethod is not None
     assert perform_greedy_policy_search is not None
     
-    print("✅ Modular imports working!")
+    print("[OK] Modular imports working!")
 
 def test_package_level_imports():
     """Test importing from package level."""
@@ -35,10 +35,10 @@ def test_package_level_imports():
     assert hasattr(uq, 'UQMethod')
     assert hasattr(uq, 'UQResult')
     
-    print("✅ Package-level imports working!")
+    print("[OK] Package-level imports working!")
 
 if __name__ == "__main__":
     test_backward_compatible_imports()
     test_new_modular_imports()
     test_package_level_imports()
-    print("\n🎉 All import tests passed!")
+    print("\nAll import tests passed!")

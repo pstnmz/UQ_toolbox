@@ -176,7 +176,7 @@ def create_plot(workspace_root: Path) -> Path:
 		ax.scatter(
 			agg_x,
 			agg_y,
-			marker="$⚡$",
+			marker="$$",
 			c="#f4c97a",
 			s=170,
 			alpha=0.62,

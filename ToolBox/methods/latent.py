@@ -145,7 +145,7 @@ def _fit_fold_worker_multigpu(fold_idx, model, train_loader_params, calib_loader
         pin_memory=True
     )
     
-    print(f"  Worker {fold_idx}: Using GPU {gpu_id}")
+    print(f" Worker {fold_idx}: Using GPU {gpu_id}")
     
     # Move model to assigned GPU
     model = model.to(device)
@@ -174,7 +174,7 @@ def _fit_fold_worker_multigpu(fold_idx, model, train_loader_params, calib_loader
     torch.cuda.empty_cache()
     gc.collect()
     
-    print(f"  Worker {fold_idx}: Done on GPU {gpu_id}")
+    print(f" Worker {fold_idx}: Done on GPU {gpu_id}")
     
     return model_knns
 
@@ -278,7 +278,7 @@ class KNNLatentMethod(UQMethod):
         self.fitted_models = []
         
         for idx, (model, train_loader) in enumerate(zip(models, train_loaders)):
-            print(f"  Fold {idx}: Fitting KNN on its training set...")
+            print(f" Fold {idx}: Fitting KNN on its training set...")
             
             # Extract layer from this model
             layer = get_layer_from_model(model, self.layer_name)
@@ -306,13 +306,13 @@ class KNNLatentMethod(UQMethod):
                 'layer': layer
             })
             
-            print(f"    {len(features)} train samples, {features.shape[1]} → {features_pca.shape[1]} PCA dims")
+            print(f" {len(features)} train samples, {features.shape[1]} → {features_pca.shape[1]} PCA dims")
             
             # Clear GPU cache between folds to prevent memory buildup
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
         
-        print(f"  ✓ Fitted {len(models)} fold(s)")
+        print(f" Fitted {len(models)} fold(s)")
         return self
     
     def compute(self, models, data_loader, device, return_per_fold=True):
@@ -371,12 +371,12 @@ class KNNLatentMethod(UQMethod):
         all_distances = np.array(all_distances)  # [num_folds, N] - now z-scored per fold
         
         if return_per_fold:
-            print(f"  ✓ Computed KNN distances for {len(models)} folds (z-scored per fold)")
+            print(f" Computed KNN distances for {len(models)} folds (z-scored per fold)")
             return all_distances  # [num_folds, N]
         else:
             # Legacy mode: average across folds
             final_distances = np.mean(all_distances, axis=0)
-            print(f"  ✓ Computed KNN distances (z-scored per fold, then averaged over {len(models)} folds)")
+            print(f" Computed KNN distances (z-scored per fold, then averaged over {len(models)} folds)")
             return final_distances
 
 
@@ -409,7 +409,7 @@ class KNNLatentSHAPMethod(UQMethod):
         if parallel and n_jobs is None:
             import torch
             self.n_jobs = torch.cuda.device_count()
-            print(f"  Auto-detected {self.n_jobs} GPUs for parallel processing")
+            print(f" Auto-detected {self.n_jobs} GPUs for parallel processing")
         else:
             self.n_jobs = n_jobs or 2
     
@@ -457,7 +457,7 @@ class KNNLatentSHAPMethod(UQMethod):
             raise ValueError(f"Models ({len(models)}) != train_loaders ({len(train_loaders)})")
         
         if self.parallel and len(models) > 1:
-            print(f"\n  🚀 Parallel mode: {self.n_jobs} workers across {len(models)} folds")
+            print(f"\n   Parallel mode: {self.n_jobs} workers across {len(models)} folds")
             self.fitted_models = self._fit_parallel(models, train_loaders, calib_loader, device, flag)
             
             # Infer num_classes from the fitted models (workers don't share self.num_classes)
@@ -466,18 +466,18 @@ class KNNLatentSHAPMethod(UQMethod):
                 for model_knns in self.fitted_models:
                     if model_knns is not None:
                         self.num_classes = len(model_knns)
-                        print(f"  Inferred {self.num_classes} classes from fitted models")
+                        print(f" Inferred {self.num_classes} classes from fitted models")
                         break
             
             # Move models back to original device after parallel processing
-            print(f"  Moving models back to {device}...")
+            print(f" Moving models back to {device}...")
             for model in models:
                 model.to(device)
         else:
             print(f"\n  Sequential mode: {len(models)} folds")
             self.fitted_models = self._fit_sequential(models, train_loaders, calib_loader, device, flag)
         
-        print(f"\n  ✓ Fitted {len(models)} models (each with its own SHAP + KNN)")
+        print(f"\n  Fitted {len(models)} models (each with its own SHAP + KNN)")
         return self
     
     def _fit_sequential(self, models, train_loaders, calib_loader, device, flag):
@@ -502,7 +502,7 @@ class KNNLatentSHAPMethod(UQMethod):
         if n_gpus == 0:
             raise RuntimeError("No GPUs available for parallel processing")
         
-        print(f"  Detected {n_gpus} GPUs, distributing {len(models)} folds...")
+        print(f" Detected {n_gpus} GPUs, distributing {len(models)} folds...")
         
         try:
             torch_mp.set_start_method('spawn', force=True)
@@ -522,7 +522,7 @@ class KNNLatentSHAPMethod(UQMethod):
             train_loader_params = self._extract_loader_params(train_loader)
             
             fold_args.append((fold_idx, model_cpu, train_loader_params, calib_loader_params, device_str, flag, gpu_id, self.cache_dir))
-            print(f"    Fold {fold_idx} → GPU {gpu_id}")
+            print(f" Fold {fold_idx} → GPU {gpu_id}")
         
         fitted_models = [None] * len(models)
         
@@ -537,9 +537,9 @@ class KNNLatentSHAPMethod(UQMethod):
                 try:
                     model_knns = future.result()
                     fitted_models[fold_idx] = model_knns
-                    print(f"    ✓ Fold {fold_idx} complete")
+                    print(f" Fold {fold_idx} complete")
                 except Exception as e:
-                    print(f"    ✗ Fold {fold_idx} failed: {e}")
+                    print(f" Fold {fold_idx} failed: {e}")
                     import traceback
                     traceback.print_exc()
                     raise
@@ -563,7 +563,7 @@ class KNNLatentSHAPMethod(UQMethod):
         shap_values, features_calib, labels_calib = None, None, None
         
         if cache_path and os.path.exists(cache_path):
-            print(f"    ✓ Loading cached SHAP from {os.path.basename(cache_path)}")
+            print(f" Loading cached SHAP from {os.path.basename(cache_path)}")
             try:
                 cache = np.load(cache_path, allow_pickle=True)
                 shap_values = cache['shap_values']
@@ -576,15 +576,15 @@ class KNNLatentSHAPMethod(UQMethod):
                 
                 if self.num_classes is None:
                     self.num_classes = inferred_num_classes
-                    print(f"    Inferred {self.num_classes} classes from cached labels")
+                    print(f" Inferred {self.num_classes} classes from cached labels")
                 
             except Exception as e:
-                print(f"      ⚠️  Cache load failed: {e}, recomputing...")
+                print(f" [WARNING] Cache load failed: {e}, recomputing...")
                 shap_values = None
         
         # Compute SHAP if not cached
         if shap_values is None:
-            print(f"    Step 1: Computing SHAP on calibration...")
+            print(f" Step 1: Computing SHAP on calibration...")
             shap_values, features_calib, labels_calib, _ = \
                 extract_latent_space_and_compute_shap_importance(
                     model, calib_loader, device, layer,
@@ -602,7 +602,7 @@ class KNNLatentSHAPMethod(UQMethod):
             
             # Save to cache
             if cache_path:
-                print(f"    💾 Saving SHAP to cache")
+                print(f" Saving SHAP to cache")
                 np.savez_compressed(
                     cache_path,
                     shap_values=shap_values,
@@ -613,7 +613,7 @@ class KNNLatentSHAPMethod(UQMethod):
         # =====================================================================
         # Compute mean SHAP per class
         # =====================================================================
-        print(f"    Step 2: Computing mean SHAP per class...")
+        print(f" Step 2: Computing mean SHAP per class...")
         mean_shap_results = compute_mean_shap_values(
             shap_values, fold=fold_idx, true_labels=labels_calib, 
             nb_features=self.n_shap_features
@@ -622,7 +622,7 @@ class KNNLatentSHAPMethod(UQMethod):
         # FIX: Always set num_classes (even if cached)
         if self.num_classes is None:
             self.num_classes = len(mean_shap_results)
-            print(f"    Detected {self.num_classes} classes")
+            print(f" Detected {self.num_classes} classes")
         
         # Extract top features per class
         selected_features_per_class = []
@@ -634,7 +634,7 @@ class KNNLatentSHAPMethod(UQMethod):
         # =====================================================================
         # Extract training features
         # =====================================================================
-        print(f"    Step 3: Extracting training features...")
+        print(f" Step 3: Extracting training features...")
         features_train, labels_train, _, _ = extract_latent_space_and_compute_shap_importance(
             model, train_loader, device, layer, importance=False
         )
@@ -652,7 +652,7 @@ class KNNLatentSHAPMethod(UQMethod):
         # =====================================================================
         # Fit KNN per class
         # =====================================================================
-        print(f"    Step 4: Fitting KNN per class...")
+        print(f" Step 4: Fitting KNN per class...")
         model_knns = []
         
         for class_idx in range(self.num_classes):
@@ -729,8 +729,8 @@ class KNNLatentSHAPMethod(UQMethod):
             print(f"\n  Model {model_idx+1}: Processing {len(predicted_classes)} test samples")
             if predicted_classes.ndim > 1:
                 predicted_classes = np.argmax(predicted_classes, axis=1)
-            print(f"    Predicted classes: {np.bincount(predicted_classes)}")
-            print(f"    True classes: {np.bincount(labels_test)}")
+            print(f" Predicted classes: {np.bincount(predicted_classes)}")
+            print(f" True classes: {np.bincount(labels_test)}")
             
             test_df = pd.DataFrame(
                 features_test.numpy(),
@@ -771,13 +771,13 @@ class KNNLatentSHAPMethod(UQMethod):
                 n_correct = (class_labels == class_idx).sum()
                 n_incorrect = (class_labels != class_idx).sum()
                 
-                print(f"    Class {class_idx}: {n_samples_class} pred ({n_correct} ✓, {n_incorrect} ✗)")
+                print(f" Class {class_idx}: {n_samples_class} pred ({n_correct} , {n_incorrect} )")
                 if n_correct > 0:
                     correct_dists = avg_distances[class_labels == class_idx]
-                    print(f"      Correct: {correct_dists.mean():.3f}±{correct_dists.std():.3f}")
+                    print(f" Correct: {correct_dists.mean():.3f}±{correct_dists.std():.3f}")
                 if n_incorrect > 0:
                     incorrect_dists = avg_distances[class_labels != class_idx]
-                    print(f"      Incorrect: {incorrect_dists.mean():.3f}±{incorrect_dists.std():.3f}")
+                    print(f" Incorrect: {incorrect_dists.mean():.3f}±{incorrect_dists.std():.3f}")
                 
                 # Standardize distances within this class
                 # Each class uses different SHAP features + PCA space, so distances have different scales
@@ -803,12 +803,12 @@ class KNNLatentSHAPMethod(UQMethod):
         all_distances = np.array(all_distances)  # [num_folds, N] - z-scored per fold
         
         if return_per_fold:
-            print(f"\n  ✓ Computed KNN-SHAP distances for {len(self.fitted_models)} folds (z-scored per fold)")
+            print(f"\n  Computed KNN-SHAP distances for {len(self.fitted_models)} folds (z-scored per fold)")
             return all_distances  # [num_folds, N]
         else:
             # Legacy mode: average across models
             final_distances = np.mean(all_distances, axis=0)
-            print(f"\n  ✓ Computed KNN-SHAP distances (z-scored per fold, then averaged over {len(self.fitted_models)} folds)")
+            print(f"\n  Computed KNN-SHAP distances (z-scored per fold, then averaged over {len(self.fitted_models)} folds)")
             return final_distances
 
 class HyperplaneDistanceMethod(UQMethod):
@@ -964,7 +964,7 @@ def extract_latent_space_and_compute_shap_importance(
         # ====================================================================
         # Subsample BEFORE moving to GPU
         # ====================================================================
-        print(f"    Selecting {max_background_samples} background samples from {len(features)}...")
+        print(f" Selecting {max_background_samples} background samples from {len(features)}...")
         
         if len(features) > max_background_samples:
             # Random sampling
@@ -978,7 +978,7 @@ def extract_latent_space_and_compute_shap_importance(
         # NOW move subsampled features to GPU
         background_features = background_features.to(device)
         
-        print(f"    Computing SHAP with {len(background_features)} background samples (GPU mem: ~{background_features.element_size() * background_features.nelement() / 1e6:.1f}MB)...")
+        print(f" Computing SHAP with {len(background_features)} background samples (GPU mem: ~{background_features.element_size() * background_features.nelement() / 1e6:.1f}MB)...")
         
         # DeepExplainer with subsampled background
         explainer = shap.DeepExplainer(classifierheadwrapper, background_features.clone())
@@ -989,7 +989,7 @@ def extract_latent_space_and_compute_shap_importance(
         
         for start_idx in range(0, n_samples, shap_batch_size):
             end_idx = min(start_idx + shap_batch_size, n_samples)
-            batch_features = features[start_idx:end_idx].to(device)  # ← Move batch to GPU
+            batch_features = features[start_idx:end_idx].to(device)
             
             batch_shap = explainer.shap_values(batch_features)
             all_shap_values.append(batch_shap)
@@ -1000,7 +1000,7 @@ def extract_latent_space_and_compute_shap_importance(
                 torch.cuda.empty_cache()
             
             if (start_idx // shap_batch_size) % 10 == 0:
-                print(f"      SHAP progress: {end_idx}/{n_samples} samples")
+                print(f" SHAP progress: {end_idx}/{n_samples} samples")
         
         # Cleanup explainer
         del explainer
@@ -1054,7 +1054,7 @@ def compute_mean_shap_values(shap_values, fold, true_labels=None, nb_features=50
         raise ValueError("Expected 2D or 3D SHAP values array")
 
     for class_idx in range(num_classes):
-        print(f"  Class {class_idx}: Computing SHAP importances")
+        print(f" Class {class_idx}: Computing SHAP importances")
 
         if shap_values.ndim == 3:
             class_shap_values = shap_values[:, :, class_idx]
