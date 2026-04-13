@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -39,7 +39,9 @@ def remap_dataset_to_uq_name(dataset: str) -> str:
 	return mapping.get(dataset, dataset)
 
 
-def load_classification_balanced_accuracy(workspace_root: Path) -> Dict[Tuple[str, str, str, str], float]:
+def load_classification_balanced_accuracy(
+	workspace_root: Path,
+) -> Tuple[Dict[Tuple[str, str, str, str], List[float]], Dict[Tuple[str, str, str, str], float]]:
 	cls_root = workspace_root / "Benchmarks" / "medMNIST" / "results" / "classification_results"
 	shift_to_folder = {
 		"in_distribution": "in_distribution",
@@ -47,7 +49,8 @@ def load_classification_balanced_accuracy(workspace_root: Path) -> Dict[Tuple[st
 		"population_shifts": "population_shift",
 	}
 
-	result: Dict[Tuple[str, str, str, str], float] = {}
+	per_fold_result: Dict[Tuple[str, str, str, str], List[float]] = {}
+	ensemble_result: Dict[Tuple[str, str, str, str], float] = {}
 	for shift_key, folder_name in shift_to_folder.items():
 		folder = cls_root / folder_name
 		if not folder.exists():
@@ -72,23 +75,35 @@ def load_classification_balanced_accuracy(workspace_root: Path) -> Dict[Tuple[st
 			except (OSError, json.JSONDecodeError):
 				continue
 
-			bal_acc = None
-			if isinstance(payload.get("ensemble_metrics"), dict):
-				bal_acc = payload["ensemble_metrics"].get("balanced_accuracy")
-			if bal_acc is None and isinstance(payload.get("ensemble"), dict):
-				bal_acc = payload["ensemble"].get("balanced_accuracy")
-			if bal_acc is None:
-				continue
-
 			key = (shift_key, dataset, model, setup)
-			result[key] = float(bal_acc)
 
-	return result
+			fold_metrics = payload.get("per_fold_metrics")
+			if isinstance(fold_metrics, list):
+				fold_bal_accs = []
+				for fold_metric in fold_metrics:
+					if not isinstance(fold_metric, dict):
+						continue
+					bal_acc = fold_metric.get("balanced_accuracy")
+					if bal_acc is None:
+						continue
+					fold_bal_accs.append(float(bal_acc))
+				if fold_bal_accs:
+					per_fold_result[key] = fold_bal_accs
+
+			ensemble_bal_acc = None
+			if isinstance(payload.get("ensemble_metrics"), dict):
+				ensemble_bal_acc = payload["ensemble_metrics"].get("balanced_accuracy")
+			if ensemble_bal_acc is None and isinstance(payload.get("ensemble"), dict):
+				ensemble_bal_acc = payload["ensemble"].get("balanced_accuracy")
+			if ensemble_bal_acc is not None:
+				ensemble_result[key] = float(ensemble_bal_acc)
+
+	return per_fold_result, ensemble_result
 
 
 def collect_scatter_points(workspace_root: Path):
 	uq_root = workspace_root / "Benchmarks" / "medMNIST" / "results" / "jsons_results"
-	cls_index = load_classification_balanced_accuracy(workspace_root)
+	cls_per_fold_index, cls_ensemble_index = load_classification_balanced_accuracy(workspace_root)
 
 	individual_x = []
 	individual_y = []
@@ -114,8 +129,9 @@ def collect_scatter_points(workspace_root: Path):
 				continue
 
 			key = (shift_key, str(dataset), str(model), setup)
-			bal_acc = cls_index.get(key)
-			if bal_acc is None:
+			fold_bal_accs = cls_per_fold_index.get(key)
+			ensemble_bal_acc = cls_ensemble_index.get(key)
+			if fold_bal_accs is None and ensemble_bal_acc is None:
 				continue
 
 			methods = payload.get("methods", {})
@@ -125,26 +141,39 @@ def collect_scatter_points(workspace_root: Path):
 			for method_name, method_data in methods.items():
 				if not isinstance(method_data, dict):
 					continue
-				if method_name == "ZScore_Aggregation_ensemble":
+				if method_name in {"Ensembling", "ZScore_Aggregation_ensemble"}:
 					continue
 				if method_name.startswith("ZScore_Aggregation") or method_name == "Calibration_ZScore_Stats":
 					continue
 
-				if method_name == "Ensembling":
-					score = method_data.get("auroc_f")
-				else:
-					score = method_data.get("auroc_f_mean")
-
-				if score is None:
+				if fold_bal_accs is None:
 					continue
 
-				individual_x.append(bal_acc)
-				individual_y.append(float(score))
+				per_fold_metrics = method_data.get("per_fold_metrics")
+				if not isinstance(per_fold_metrics, list):
+					continue
 
-			agg_score = methods.get("ZScore_Aggregation_ensemble", {}).get("auroc_f")
-			if agg_score is not None:
-				agg_x.append(bal_acc)
-				agg_y.append(float(agg_score))
+				for fold_idx, fold_metric in enumerate(per_fold_metrics):
+					if fold_idx >= len(fold_bal_accs):
+						break
+					if not isinstance(fold_metric, dict):
+						continue
+					score = fold_metric.get("auroc_f")
+					if score is None:
+						continue
+					individual_x.append(fold_bal_accs[fold_idx])
+					individual_y.append(float(score))
+
+			if ensemble_bal_acc is not None:
+				ensembling_score = methods.get("Ensembling", {}).get("auroc_f")
+				if ensembling_score is not None:
+					agg_x.append(ensemble_bal_acc)
+					agg_y.append(float(ensembling_score))
+
+				agg_score = methods.get("ZScore_Aggregation_ensemble", {}).get("auroc_f")
+				if agg_score is not None:
+					agg_x.append(ensemble_bal_acc)
+					agg_y.append(float(agg_score))
 
 	return individual_x, individual_y, agg_x, agg_y
 
@@ -176,13 +205,13 @@ def create_plot(workspace_root: Path) -> Path:
 		ax.scatter(
 			agg_x,
 			agg_y,
-			marker="$$",
+			marker="$\u26A1$",
 			c="#f4c97a",
 			s=170,
 			alpha=0.62,
 			edgecolors="black",
 			linewidths=0.3,
-			label="Mean Agg + Ens",
+			label="Ensembling + ZScore Agg",
 		)
 
 	# Fit and draw global regression across all displayed points.
@@ -212,7 +241,7 @@ def create_plot(workspace_root: Path) -> Path:
 	ax.set_title("Balanced Accuracy vs AUROC-F", fontweight="bold", fontsize=title_fs)
 	ax.tick_params(axis="both", which="major", labelsize=tick_fs)
 	ax.grid(True, linestyle="--", alpha=0.25)
-	ax.legend(loc="best", frameon=True, fontsize=legend_fs)
+	ax.legend(loc="lower right", frameon=True, fontsize=legend_fs)
 
 	output_path = (
 		workspace_root
@@ -228,7 +257,7 @@ def create_plot(workspace_root: Path) -> Path:
 
 	print(f"Saved figure: {output_path}")
 	print(f"Individual points: {len(individual_x)}")
-	print(f"Mean Agg + Ens points: {len(agg_x)}")
+	print(f"Ensembling + ZScore Agg points: {len(agg_x)}")
 	return output_path
 
 

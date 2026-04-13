@@ -5,6 +5,7 @@ This module provides tools for loading, transforming, subsampling datasets,
 and applying covariate shift corruptions using medmnistc.
 """
 
+import importlib.util
 import numpy as np
 import torch
 import torchvision.transforms as transforms
@@ -12,6 +13,15 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 from torch.utils.data import DataLoader, Subset, Dataset
 from pathlib import Path
 import random
+
+
+def _load_hub_module():
+    """Load utils/hub.py via file path — works regardless of import context."""
+    hub_path = Path(__file__).resolve().parent.parent / "hub.py"
+    spec = importlib.util.spec_from_file_location("_failcatcher_hub", hub_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 # Import medmnistc for covariate shift corruptions
 try:
@@ -147,7 +157,20 @@ def load_amos_dataset(transform, transform_tta, batch_size=256, workspace_root=N
     
     print(" Loading AMOS external test dataset...")
     amos_path = workspace_root / 'benchmarks' / 'medMNIST' / 'Data' / 'AMOS_2022' / 'amos_external_test_224.npz'
-    
+
+    # If the file is missing, attempt a Hub download before raising
+    if not amos_path.exists():
+        try:
+            _hub = _load_hub_module()
+            _hub.ensure_dataset_file("amos22", "amos_external_test_224.npz",
+                                     local_dir=amos_path.parent)
+        except Exception as hub_err:
+            raise FileNotFoundError(
+                f"\n AMOS dataset file not found at {amos_path}\n"
+                f"   Attempted Hub download but failed: {hub_err}\n"
+                f"   To download all custom datasets run:  python scripts/setup_from_hub.py"
+            ) from hub_err
+
     # Check if file is a Git LFS pointer (not the actual data)
     if amos_path.stat().st_size < 1000:  # Real file should be ~133MB
         raise FileNotFoundError(

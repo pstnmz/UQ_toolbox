@@ -1272,12 +1272,22 @@ def load_models(flag, device, waugmentation=False, size=224, model_backbone='res
             model_path = project_root / 'medMNIST' / 'models' / f'{size}*{size}' / model_filename
         model_path = str(model_path)
         
-        # Load the state dictionary
+        # Load the state dictionary – fall back to HuggingFace Hub when missing
         if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                f"Model file not found: {model_path}\n"
-                f"Expected pattern: {flag}_{model_backbone}_{size}_randaug{randaug}{dropout_suffix}_fold_{{0-4}}.pt"
-            )
+            try:
+                import importlib.util as _ilu
+                _hub_path = Path(__file__).resolve().parent / "hub.py"
+                _spec = _ilu.spec_from_file_location("_failcatcher_hub", _hub_path)
+                _hub = _ilu.module_from_spec(_spec)
+                _spec.loader.exec_module(_hub)
+                model_path = str(_hub.ensure_model_file(model_filename, local_dir=Path(model_path).parent))
+            except Exception as hub_err:
+                raise FileNotFoundError(
+                    f"Model file not found: {model_path}\n"
+                    f"Expected pattern: {flag}_{model_backbone}_{size}_randaug{randaug}{dropout_suffix}_fold_{{0-4}}.pt\n"
+                    f"Attempted Hub download but failed: {hub_err}\n"
+                    f"To download all models at once run:  python scripts/setup_from_hub.py"
+                ) from hub_err
         
         state_dict = torch.load(model_path, map_location=device)
         

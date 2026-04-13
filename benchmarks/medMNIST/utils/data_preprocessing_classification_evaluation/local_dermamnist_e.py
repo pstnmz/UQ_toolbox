@@ -1,9 +1,19 @@
+import importlib.util
 import medmnist
 from medmnist.dataset import MedMNIST
 from pathlib import Path
 import numpy as np
 import torch
 from PIL import Image
+
+
+def _load_hub_module():
+    """Load utils/hub.py via file path — works regardless of import context."""
+    hub_path = Path(__file__).resolve().parent.parent / "hub.py"
+    spec = importlib.util.spec_from_file_location("_failcatcher_hub", hub_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 DERMAMNIST_E_INFO = {
     'python_class': 'DermaMNIST_E',
@@ -79,10 +89,17 @@ class DermaMNIST_E(MedMNIST):
         npz_path = self.root / npz_filename
         
         if not npz_path.exists():
-            raise FileNotFoundError(
-                f"Could not find {npz_filename} at {self.root}\n"
-                f"Expected path: {npz_path}"
-            )
+            # Try to download from HuggingFace Hub before raising
+            try:
+                _hub = _load_hub_module()
+                _hub.ensure_dataset_file("dermamnist-e", npz_filename, local_dir=self.root)
+            except Exception as hub_err:
+                raise FileNotFoundError(
+                    f"Could not find {npz_filename} at {self.root}\n"
+                    f"Expected path: {npz_path}\n"
+                    f"Attempted Hub download but failed: {hub_err}\n"
+                    f"To download all custom datasets run:  python scripts/setup_from_hub.py"
+                ) from hub_err
         
         # Load data directly instead of calling parent init (which tries to download)
         self.split = split

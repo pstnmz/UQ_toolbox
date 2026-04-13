@@ -6,7 +6,7 @@
             "name": "plot_accuracy_vs_auroc.py",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/Benchmarks/medMNIST/utils/viz_benchmark_results/plot_accuracy_vs_auroc.py",
+            "program": "${workspaceFolder}/Benchmarks/medMNIST/utils/viz_benchmark_results/auroc_f_vs_balanced_acc.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "justMyCode": false,
