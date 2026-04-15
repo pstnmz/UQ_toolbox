@@ -1,4 +1,4 @@
-**/results/
+**/results**/
 **/data/
 **/runs/**/**.pt
 **/runs/**/figs
@@ -8,3 +8,4 @@
 __pycache__/
 *.pyc
 **/upload_to_hub.py
+**/uq_benchmark_results/

@@ -1018,7 +1018,8 @@ class FailureDetector:
         num_workers: int = 0,
         pin_memory: bool = False,
         persistent_workers: bool = False,
-        prefetch_factor: Optional[int] = None
+        prefetch_factor: Optional[int] = None,
+        seed: int = 42
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Run Monte Carlo Dropout uncertainty quantification.
@@ -1037,6 +1038,8 @@ class FailureDetector:
             pin_memory: Whether to enable pinned host memory for faster host->device copies
             persistent_workers: Keep workers alive across iterations (only effective when num_workers > 0)
             prefetch_factor: Number of batches prefetched per worker (only effective when num_workers > 0)
+            seed: Random seed for MC dropout sampling. Ensures ensemble-level metrics are
+                  reproducible across runs regardless of prior RNG state (default: 42).
         
         Returns:
             tuple: (uncertainties, metrics_dict)
@@ -1056,30 +1059,39 @@ class FailureDetector:
             if prefetch_factor is not None:
                 loader_kwargs['prefetch_factor'] = prefetch_factor
         
+        # Seed torch RNG before MC sampling so that ensemble-level metrics are
+        # reproducible regardless of which other methods ran before MCDropout.
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        np.random.seed(seed)
+        print(f" MC Dropout seed: {seed}")
+
         timer = Timer(f"MC Dropout computation ({num_samples} samples)")
         with timer:
             mcdropout = uq.MCDropoutMethod(num_samples=num_samples)
             test_loader = DataLoader(test_dataset, **loader_kwargs)
             
-            # Always compute per-model uncertainties first
-            per_fold_uncertainties = mcdropout.compute(
+            # Always compute per-model uncertainties first.
+            # Also returns per-fold mean predictions (argmax of mean MC probs per fold).
+            per_fold_uncertainties, per_fold_mean_preds_mcd = mcdropout.compute(
                 self.models, test_loader, self.device,
                 ensemble_mode=True,
                 return_per_fold=True
-            )  # [M, N]
+            )  # [M, N], [M, N]
             
             if per_fold_evaluation:
                 uncertainties = per_fold_uncertainties  # [M, N]
             else:
                 uncertainties = np.mean(per_fold_uncertainties, axis=0)  # [N]
         
-        # Get predictions for metrics (use cache to avoid redundant inference)
+        # Per-fold predictions: use MCD's own mean predictions (NOT baseline single-pass)
+        # so that fold-level failures are defined by argmax(mean MC softmax) per fold.
         if per_fold_evaluation:
-            predictions_per_fold = self._get_per_fold_predictions(batch_size)
+            predictions_per_fold = per_fold_mean_preds_mcd  # [M, N]
         else:
             predictions_per_fold = None
         
-        # Use cached predictions if available
+        # Use cached ensemble predictions for ensemble-level correct/incorrect indices
         if self._test_predictions_cache is not None:
             correct_idx = self._test_predictions_cache['correct_idx']
             incorrect_idx = self._test_predictions_cache['incorrect_idx']
@@ -1091,8 +1103,11 @@ class FailureDetector:
             correct_idx = np.where(y_pred == y_true)[0]
             incorrect_idx = np.where(y_pred != y_true)[0]
         
+        # use_cached_per_fold_indices=False: derive fold failures from MCD mean predictions,
+        # not from the baseline cached per-fold predictions.
         metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
-                                       predictions_per_fold=predictions_per_fold)
+                                       predictions_per_fold=predictions_per_fold,
+                                       use_cached_per_fold_indices=False)
         metrics['time_seconds'] = timer.elapsed
         
         # Store results (matching TTA pattern)
@@ -1102,7 +1117,7 @@ class FailureDetector:
             self._uncertainties['MCDropout'] = averaged_uncertainties
             self._uncertainties['MCDropout_per_fold'] = uncertainties  # [M, N]
             self._uncertainties['MCDropout_ensemble'] = averaged_uncertainties  # [N]
-            self._predictions_per_fold['MCDropout'] = predictions_per_fold  # [M, N]
+            self._predictions_per_fold['MCDropout'] = per_fold_mean_preds_mcd  # [M, N] (MCD mean preds)
         else:
             # Ensemble mode: store single averaged uncertainty [N]
             self._uncertainties['MCDropout'] = uncertainties  # [N]
@@ -1173,17 +1188,13 @@ class FailureDetector:
             # For each model: apply augmentations and compute std across augmentations
             # This gives us per-model uncertainties [M, N]
             
-            # Compute per-model TTA uncertainties
-            _, per_fold_uncertainties = tta.compute(
+            # Compute per-model TTA uncertainties and per-fold mean predictions
+            _, per_fold_uncertainties, per_fold_mean_preds_tta = tta.compute(
                 self.models, test_dataset, self.device, 
                 ensemble_mode=True,  # Compute per-model
                 return_per_fold=True,  # Return full [M, N] array
                 seed=seed  # Pass seed to TTA
-            )
-            
-            # Get per-fold predictions (use cache to avoid redundant inference)
-            # Uses self.test_dataset (normalized) for consistency with ensemble predictions
-            predictions_per_fold = self._get_per_fold_predictions(batch_size)
+            )  # stds [M,N], per_fold_uncertainties [M,N], per_fold_mean_preds_tta [M,N]
             
             # Difference between modes: what we return and how we compute metrics
             if per_fold_evaluation:
@@ -1192,10 +1203,8 @@ class FailureDetector:
             else:
                 # Ensemble mode: average across models and return [N]
                 uncertainties = np.mean(per_fold_uncertainties, axis=0)  # [N]
-                # Still keep per_fold_uncertainties for storage
-                # But don't pass predictions_per_fold to metrics (use ensemble predictions)
         
-        # Use cached predictions if available, otherwise compute
+        # Use cached ensemble predictions for ensemble-level correct/incorrect indices
         if self._test_predictions_cache is not None:
             correct_idx = self._test_predictions_cache['correct_idx']
             incorrect_idx = self._test_predictions_cache['incorrect_idx']
@@ -1209,10 +1218,11 @@ class FailureDetector:
         
         # Compute metrics based on mode
         if per_fold_evaluation:
-            # Per-fold: compute metrics per fold (using per-fold predictions)
-            # Also compute ensemble reference (using ensemble predictions)
+            # Per-fold: use TTA's own mean predictions to define fold-level failures.
+            # use_cached_per_fold_indices=False so we don't use baseline cached indices.
             metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
-                                           predictions_per_fold=predictions_per_fold)
+                                           predictions_per_fold=per_fold_mean_preds_tta,
+                                           use_cached_per_fold_indices=False)
         else:
             # Ensemble: compute single metrics using ensemble predictions only
             metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
@@ -1228,7 +1238,7 @@ class FailureDetector:
             self._uncertainties['TTA_per_fold'] = uncertainties  # [M, N] for plotting all curves
             # Ensemble baseline: same averaged uncertainties, but evaluated against ensemble predictions
             self._uncertainties['TTA_ensemble'] = averaged_uncertainties  # [N] for ensemble ROC baseline
-            self._predictions_per_fold['TTA'] = predictions_per_fold  # [M, N]
+            self._predictions_per_fold['TTA'] = per_fold_mean_preds_tta  # [M, N] (TTA mean preds)
         else:
             # Ensemble mode: store single averaged uncertainty [N]
             # DO NOT store per-fold data (it will cause plotting to show per-fold curves)
@@ -1453,8 +1463,9 @@ class FailureDetector:
             np.random.seed(seed)
             torch.manual_seed(seed)
             
-            # Always compute per-model uncertainties first
-            _, per_fold_uncertainties = gps.compute(
+            # Always compute per-model uncertainties first.
+            # Also returns per-fold mean predictions (argmax of mean GPS softmax per fold).
+            _, per_fold_uncertainties, per_fold_mean_preds_gps = gps.compute(
                 self.models, test_dataset, self.device,
                 n=2, m=45,
                 nb_channels=nb_channels,
@@ -1465,22 +1476,14 @@ class FailureDetector:
                 batch_size=batch_size,
                 ensemble_mode=True,  # Compute per-model std
                 return_per_fold=True  # Return [M, N]
-            )
+            )  # stds [M,N], per_fold_uncertainties [M,N], per_fold_mean_preds_gps [M,N]
             
             if per_fold_evaluation:
                 uncertainties = per_fold_uncertainties  # [M, N] for per-fold metrics
             else:
                 uncertainties = np.mean(per_fold_uncertainties, axis=0)  # [N] averaged
-                # Keep per_fold_uncertainties for internal storage, don't set to None
         
-        # Get predictions for metrics (use cache to avoid redundant inference)
-        # Uses self.test_dataset (normalized) for consistency with ensemble predictions
-        if per_fold_evaluation:
-            predictions_per_fold = self._get_per_fold_predictions(batch_size)
-        else:
-            predictions_per_fold = None
-        
-        # Use cached predictions if available, otherwise compute
+        # Use cached ensemble predictions for ensemble-level correct/incorrect indices
         if self._test_predictions_cache is not None:
             correct_idx = self._test_predictions_cache['correct_idx']
             incorrect_idx = self._test_predictions_cache['incorrect_idx']
@@ -1492,8 +1495,15 @@ class FailureDetector:
             correct_idx = np.where(y_pred == y_true)[0]
             incorrect_idx = np.where(y_pred != y_true)[0]
         
-        metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
-                                       predictions_per_fold=predictions_per_fold)
+        if per_fold_evaluation:
+            # Per-fold: use GPS's own mean predictions to define fold-level failures.
+            # use_cached_per_fold_indices=False so we don't use baseline cached indices.
+            metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
+                                           predictions_per_fold=per_fold_mean_preds_gps,
+                                           use_cached_per_fold_indices=False)
+        else:
+            metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
+                                           predictions_per_fold=None)
         metrics['time_seconds'] = timer.elapsed
         
         # Store results (matching TTA pattern)
@@ -1504,7 +1514,7 @@ class FailureDetector:
             self._uncertainties['GPS_per_fold'] = uncertainties  # [M, N] for plotting all curves
             # Ensemble baseline: same averaged uncertainties, but evaluated against ensemble predictions
             self._uncertainties['GPS_ensemble'] = averaged_uncertainties  # [N] for ensemble ROC baseline
-            self._predictions_per_fold['GPS'] = predictions_per_fold  # [M, N]
+            self._predictions_per_fold['GPS'] = per_fold_mean_preds_gps  # [M, N] (GPS mean preds)
         else:
             # Ensemble mode: store single averaged uncertainty [N]
             # DO NOT store per-fold data (would trigger per-fold plotting)
@@ -1837,9 +1847,18 @@ class FailureDetector:
         predictions: np.ndarray,
         labels: np.ndarray,
         predictions_per_fold: np.ndarray = None,
-        ensemble_uncertainties: np.ndarray = None
+        ensemble_uncertainties: np.ndarray = None,
+        use_cached_per_fold_indices: bool = True
     ) -> Dict[str, Any]:
-        """Compute all evaluation metrics."""
+        """Compute all evaluation metrics.
+        
+        Args:
+            use_cached_per_fold_indices: If True (default), per-fold correct/incorrect indices
+                are read from _test_predictions_cache (baseline predictions). Set to False for
+                methods like TTA/GPS/MCDropout that define per-fold failures from their own
+                mean predictions — in that case pass the method's mean predictions via
+                predictions_per_fold and let compute_all_metrics_per_fold derive the indices.
+        """
         # Check if uncertainties are per-fold [num_folds, N] or averaged [N]
         if uncertainties.ndim == 2:
             # Ensure per-fold predictions exist for fold-wise metrics.
@@ -1856,10 +1875,12 @@ class FailureDetector:
                 # effectively mirror ensemble predictions when true per-fold preds are unavailable.
                 predictions_per_fold = np.tile(predictions[None, :], (uncertainties.shape[0], 1))
 
-            # Get per-fold correct/incorrect indices from cache if available
+            # Get per-fold correct/incorrect indices from cache if available.
+            # Skip when use_cached_per_fold_indices=False so that compute_all_metrics_per_fold
+            # derives fold failures from predictions_per_fold (the method's own mean predictions).
             per_fold_correct_idx = None
             per_fold_incorrect_idx = None
-            if self._test_predictions_cache is not None:
+            if use_cached_per_fold_indices and self._test_predictions_cache is not None:
                 per_fold_correct_idx = self._test_predictions_cache.get('per_fold_correct_idx')
                 per_fold_incorrect_idx = self._test_predictions_cache.get('per_fold_incorrect_idx')
             

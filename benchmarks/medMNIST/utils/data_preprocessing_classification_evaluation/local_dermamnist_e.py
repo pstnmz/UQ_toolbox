@@ -75,12 +75,12 @@ class DermaMNIST_E(MedMNIST):
                 - 'external': Use only external test center
         """
         # Use custom filename for local file
-        # File is located at: benchmarks/medMNIST/Data/ISIC_2018/dermamnist_extended_224_wsitesources.npz
+        # File is located at: Benchmarks/medMNIST/data/ISIC_2018/dermamnist_extended_224_wsitesources.npz
         if root is None:
             # Default to the local data directory
             import os
-            script_dir = Path(__file__).parent.parent  # Go up to medMNIST/
-            root = script_dir / "Data" / "ISIC_2018"
+            script_dir = Path(__file__).parent.parent.parent  # Go up to medMNIST/
+            root = script_dir / "data" / "ISIC_2018"
         
         self.root = Path(root)
         

@@ -85,7 +85,7 @@ class MCDropoutMethod(UQMethod):
         
         Returns:
             np.ndarray: Per-sample uncertainty scores
-                - If return_per_fold=True: [M, N] per-model uncertainties
+                - If return_per_fold=True: tuple ([M, N] per-model uncertainties, [M, N] per-fold mean predictions)
                 - Otherwise: [N] averaged uncertainties
         """
         if not isinstance(models, list):
@@ -100,6 +100,7 @@ class MCDropoutMethod(UQMethod):
         print(f" Performing {self.num_samples} MC samples per model...")
         
         all_model_uncertainties = []
+        per_fold_mean_pred_list = []  # [M, N] argmax of mean MC probs per fold
         
         for model_idx, model in enumerate(models):
             if not models_with_dropout[model_idx]:
@@ -139,6 +140,10 @@ class MCDropoutMethod(UQMethod):
             # Stack MC samples: [num_samples, N, C]
             mc_predictions = np.stack(mc_predictions, axis=0)
             
+            # Mean prediction for this fold: argmax of mean softmax across MC samples
+            mean_probs = np.mean(mc_predictions, axis=0)  # [N, C]
+            per_fold_mean_pred_list.append(np.argmax(mean_probs, axis=1))  # [N]
+
             # Compute std across MC samples
             std_per_class = np.std(mc_predictions, axis=0)  # [N, C]
             model_uncertainty = np.mean(std_per_class, axis=1)  # [N]
@@ -150,9 +155,10 @@ class MCDropoutMethod(UQMethod):
         
         # Stack uncertainties: [M, N]
         all_model_uncertainties = np.array(all_model_uncertainties)
+        per_fold_mean_preds_arr = np.array(per_fold_mean_pred_list)  # [M, N]
         
         if return_per_fold:
-            return all_model_uncertainties  # [M, N]
+            return all_model_uncertainties, per_fold_mean_preds_arr  # [M, N], [M, N]
         else:
             # Average across models
             return np.mean(all_model_uncertainties, axis=0)  # [N]

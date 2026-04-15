@@ -31,7 +31,7 @@ from ToolBox import UQ_toolbox as uq
 
 # Import medMNIST-specific utilities
 from Benchmarks.medMNIST.utils import train_models_load_datasets as tr
-from Benchmarks.medMNIST.utils import dataset_utils
+from Benchmarks.medMNIST.utils.data_preprocessing_classification_evaluation import dataset_utils
 
 
 def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
@@ -39,7 +39,8 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                            model_backbone='resnet18', setup='', gps_calib_samples=None,
                            min_failure_ratio=0.3, corruption_severity=0,
                            corrupt_test=False, corrupt_calib=False, new_class_shift=False,
-                           concurrent_processes=1, max_loader_workers=16):
+                           concurrent_processes=1, max_loader_workers=16,
+                           run_mode='both'):
     """
     Run UQ benchmark on a medMNIST dataset using FailCatcher library.
     
@@ -63,6 +64,11 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                         Only supported for AMOS2022 dataset
         concurrent_processes: Number of benchmark processes running simultaneously on this host
         max_loader_workers: Per-process hard cap for DataLoader workers
+        run_mode: Execution mode. One of 'both' (default), 'calib_only', or 'test_only'.
+                  'calib_only': skip test-set evaluation, only run calib_detector to collect
+                      mean/std stats for Z-score normalization; saves JSON and returns early.
+                  'test_only': skip calib_detector runs, only evaluate on the test set.
+                  'both': run both calib and test (normal full benchmark).
     """
     print(f"\n{'='*80}")
     print(f"MedMNIST Benchmark: {flag}")
@@ -646,104 +652,114 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     # RUN UQ METHODS using FailCatcher API
     # ========================================================================
     results = {}
-    
+    run_test = run_mode != 'calib_only'   # whether to run test-set detector
+    run_calib = run_mode != 'test_only'   # whether to run calib-set detector
+
     if 'MSR' in methods:
-        print("\nRunning MSR...")
-        mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f" Mode: {mode_str} evaluation")
-        uncertainties, metrics = detector.run_msr(
-            y_scores, y_true, 
-            indiv_scores=indiv_scores if per_fold_eval else None,
-            logits=logits,
-            indiv_logits=indiv_logits if per_fold_eval else None,
-            per_fold_evaluation=per_fold_eval
-        )
-        results['MSR'] = metrics
-        if 'auroc_f_mean' in metrics:
-            print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
-                  f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
-        else:
-            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        if run_test:
+            print("\nRunning MSR...")
+            mode_str = "per-fold" if per_fold_eval else "ensemble"
+            print(f" Mode: {mode_str} evaluation")
+            uncertainties, metrics = detector.run_msr(
+                y_scores, y_true, 
+                indiv_scores=indiv_scores if per_fold_eval else None,
+                logits=logits,
+                indiv_logits=indiv_logits if per_fold_eval else None,
+                per_fold_evaluation=per_fold_eval
+            )
+            results['MSR'] = metrics
+            if 'auroc_f_mean' in metrics:
+                print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
+                      f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
+            else:
+                print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
-        # Calibration-distribution uncertainty stats (means/stds only)
-        calib_detector.run_msr(
-            y_scores_calib, y_true_calib,
-            indiv_scores=indiv_scores_calib if per_fold_eval else None,
-            logits=logits_calib,
-            indiv_logits=indiv_logits_calib if per_fold_eval else None,
-            per_fold_evaluation=per_fold_eval
-        )
-        _store_calibration_stats('MSR')
-    
+        if run_calib:
+            # Calibration-distribution uncertainty stats (means/stds only)
+            calib_detector.run_msr(
+                y_scores_calib, y_true_calib,
+                indiv_scores=indiv_scores_calib if per_fold_eval else None,
+                logits=logits_calib,
+                indiv_logits=indiv_logits_calib if per_fold_eval else None,
+                per_fold_evaluation=per_fold_eval
+            )
+            _store_calibration_stats('MSR')
+
     if 'MSR_calibrated' in methods:
-        print(f"\nRunning MSR-{calib_method}...")
-        mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f" Mode: {mode_str} evaluation")
-        uncertainties, metrics = detector.run_msr_calibrated(
-            y_scores, y_true, y_scores_calib, y_true_calib,
-            logits, logits_calib,
-            indiv_logits_test=indiv_logits if (per_fold_eval and indiv_logits is not None) else None,
-            indiv_logits_calib=indiv_logits_calib if (per_fold_eval and indiv_logits_calib is not None) else None,
-            indiv_scores_test=indiv_scores if per_fold_eval else None,
-            indiv_scores_calib=indiv_scores_calib if per_fold_eval else None,
-            method=calib_method,
-            per_fold_evaluation=per_fold_eval,
-            auto_tune_platt=True,  # Enable automatic hyperparameter selection
-            verbose_tuning=True    # Print tuning results
-        )
-        results[f'MSR_{calib_method}'] = metrics
-        if 'auroc_f_mean' in metrics:
-            print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
-                  f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
-        else:
-            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        if run_test:
+            print(f"\nRunning MSR-{calib_method}...")
+            mode_str = "per-fold" if per_fold_eval else "ensemble"
+            print(f" Mode: {mode_str} evaluation")
+            uncertainties, metrics = detector.run_msr_calibrated(
+                y_scores, y_true, y_scores_calib, y_true_calib,
+                logits, logits_calib,
+                indiv_logits_test=indiv_logits if (per_fold_eval and indiv_logits is not None) else None,
+                indiv_logits_calib=indiv_logits_calib if (per_fold_eval and indiv_logits_calib is not None) else None,
+                indiv_scores_test=indiv_scores if per_fold_eval else None,
+                indiv_scores_calib=indiv_scores_calib if per_fold_eval else None,
+                method=calib_method,
+                per_fold_evaluation=per_fold_eval,
+                auto_tune_platt=True,  # Enable automatic hyperparameter selection
+                verbose_tuning=True    # Print tuning results
+            )
+            results[f'MSR_{calib_method}'] = metrics
+            if 'auroc_f_mean' in metrics:
+                print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
+                      f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
+            else:
+                print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
-        # Calibration-distribution uncertainty stats (means/stds only)
-        calib_detector.run_msr_calibrated(
-            y_scores_calib, y_true_calib, y_scores_calib, y_true_calib,
-            logits_calib, logits_calib,
-            indiv_logits_test=indiv_logits_calib if (per_fold_eval and indiv_logits_calib is not None) else None,
-            indiv_logits_calib=indiv_logits_calib if (per_fold_eval and indiv_logits_calib is not None) else None,
-            indiv_scores_test=indiv_scores_calib if per_fold_eval else None,
-            indiv_scores_calib=indiv_scores_calib if per_fold_eval else None,
-            method=calib_method,
-            per_fold_evaluation=per_fold_eval,
-            auto_tune_platt=True,
-            verbose_tuning=False
-        )
-        _store_calibration_stats('MSR_calibrated')
+        if run_calib:
+            # Calibration-distribution uncertainty stats (means/stds only)
+            calib_detector.run_msr_calibrated(
+                y_scores_calib, y_true_calib, y_scores_calib, y_true_calib,
+                logits_calib, logits_calib,
+                indiv_logits_test=indiv_logits_calib if (per_fold_eval and indiv_logits_calib is not None) else None,
+                indiv_logits_calib=indiv_logits_calib if (per_fold_eval and indiv_logits_calib is not None) else None,
+                indiv_scores_test=indiv_scores_calib if per_fold_eval else None,
+                indiv_scores_calib=indiv_scores_calib if per_fold_eval else None,
+                method=calib_method,
+                per_fold_evaluation=per_fold_eval,
+                auto_tune_platt=True,
+                verbose_tuning=False
+            )
+            _store_calibration_stats('MSR_calibrated')
     
     if 'MLS' in methods:
-        print("\nRunning MLS (Maximum Logit Score)...")
-        mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f" Mode: {mode_str} evaluation")
-        uncertainties, metrics = detector.run_mls(
-            logits, y_true,
-            indiv_logits=indiv_logits if per_fold_eval else None,
-            per_fold_evaluation=per_fold_eval
-        )
-        results['MLS'] = metrics
-        if 'auroc_f_mean' in metrics:
-            print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
-                  f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
-        else:
-            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        if run_test:
+            print("\nRunning MLS (Maximum Logit Score)...")
+            mode_str = "per-fold" if per_fold_eval else "ensemble"
+            print(f" Mode: {mode_str} evaluation")
+            uncertainties, metrics = detector.run_mls(
+                logits, y_true,
+                indiv_logits=indiv_logits if per_fold_eval else None,
+                per_fold_evaluation=per_fold_eval
+            )
+            results['MLS'] = metrics
+            if 'auroc_f_mean' in metrics:
+                print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
+                      f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
+            else:
+                print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
-        calib_detector.run_mls(
-            logits_calib, y_true_calib,
-            indiv_logits=indiv_logits_calib if per_fold_eval else None,
-            per_fold_evaluation=per_fold_eval
-        )
-        _store_calibration_stats('MLS')
+        if run_calib:
+            calib_detector.run_mls(
+                logits_calib, y_true_calib,
+                indiv_logits=indiv_logits_calib if per_fold_eval else None,
+                per_fold_evaluation=per_fold_eval
+            )
+            _store_calibration_stats('MLS')
     
     if 'Ensembling' in methods:
-        print("\nRunning Ensemble STD...")
-        uncertainties, metrics = detector.run_ensemble(indiv_scores, y_true)
-        results['Ensemble'] = metrics
-        print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        if run_test:
+            print("\nRunning Ensemble STD...")
+            uncertainties, metrics = detector.run_ensemble(indiv_scores, y_true)
+            results['Ensemble'] = metrics
+            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
-        calib_detector.run_ensemble(indiv_scores_calib, y_true_calib)
-        _store_calibration_stats('Ensembling')
+        if run_calib:
+            calib_detector.run_ensemble(indiv_scores_calib, y_true_calib)
+            _store_calibration_stats('Ensembling')
     
     if 'TTA' in methods:
         # TTA/GPS batch size - also needs reduction for ViT on large datasets
@@ -751,29 +767,31 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         if model_backbone == 'vit_b_16' and batch_size > 3000:
             tta_gps_batch_size = 3000
             print(f" Note: Using reduced batch size {tta_gps_batch_size} for TTA/GPS with ViT (avoids OOM)")
-        print("\nRunning TTA...")
-        mode_str = "per-fold" if per_fold_eval else "ensemble"
-        print(f" Mode: {mode_str} evaluation")
-        uncertainties, metrics = detector.run_tta(
-            test_dataset_tta, y_true,
-            image_size=image_size,
-            batch_size=tta_gps_batch_size,
-            nb_augmentations=5,
-            per_fold_evaluation=per_fold_eval,
-            seed=42
-        )
-        results['TTA'] = metrics
-        print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        if run_test:
+            print("\nRunning TTA...")
+            mode_str = "per-fold" if per_fold_eval else "ensemble"
+            print(f" Mode: {mode_str} evaluation")
+            uncertainties, metrics = detector.run_tta(
+                test_dataset_tta, y_true,
+                image_size=image_size,
+                batch_size=tta_gps_batch_size,
+                nb_augmentations=5,
+                per_fold_evaluation=per_fold_eval,
+                seed=42
+            )
+            results['TTA'] = metrics
+            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
-        calib_detector.run_tta(
-            calib_dataset_tta, y_true_calib,
-            image_size=image_size,
-            batch_size=tta_gps_batch_size,
-            nb_augmentations=5,
-            per_fold_evaluation=per_fold_eval,
-            seed=42
-        )
-        _store_calibration_stats('TTA')
+        if run_calib:
+            calib_detector.run_tta(
+                calib_dataset_tta, y_true_calib,
+                image_size=image_size,
+                batch_size=tta_gps_batch_size,
+                nb_augmentations=5,
+                per_fold_evaluation=per_fold_eval,
+                seed=42
+            )
+            _store_calibration_stats('TTA')
     
     if 'TTA_calib' in methods:
         print("\nRunning TTA Calibration Caching (BetterRandAugment)...")
@@ -839,9 +857,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             std=std,
             use_monai_cache=True,
             cache_rate=1.0,  # Full cache in RAM for speed
-            cache_num_workers=max(2, min(8, shared_loader_workers // 2)),
-            dataloader_workers=max(2, min(6, shared_loader_workers // 2)),  # Keep conservative for parallel runs
-            dataloader_prefetch=2  # Conservative prefetch to avoid OOM
+            cache_num_workers=max(4, min(24, shared_loader_workers // 2)),
+            dataloader_workers=max(4, min(16, shared_loader_workers // 2)),  # Increased cap for high-CPU hosts
+            dataloader_prefetch=4  # Larger prefetch queue when workers are plentiful
         )
         print(f" Augmentation predictions cached in: {aug_folder}")
         # Note: TTA_calib doesn't produce uncertainty scores, it only caches predictions
@@ -918,30 +936,32 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
 
         mode_str = "per-fold" if per_fold_eval else "ensemble"
         print(f" Mode: {mode_str} evaluation")
-        uncertainties, metrics = detector.run_gps(
-            test_dataset_tta, y_true,
-            aug_folder=aug_folder,
-            correct_idx_calib=gps_correct_idx,
-            incorrect_idx_calib=gps_incorrect_idx,
-            image_size=image_size,
-            batch_size=tta_gps_batch_size,
-            cache_dir=os.path.dirname(aug_folder),
-            per_fold_evaluation=per_fold_eval
-        )
-        results['GPS'] = metrics
-        print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        if run_test:
+            uncertainties, metrics = detector.run_gps(
+                test_dataset_tta, y_true,
+                aug_folder=aug_folder,
+                correct_idx_calib=gps_correct_idx,
+                incorrect_idx_calib=gps_incorrect_idx,
+                image_size=image_size,
+                batch_size=tta_gps_batch_size,
+                cache_dir=os.path.dirname(aug_folder),
+                per_fold_evaluation=per_fold_eval
+            )
+            results['GPS'] = metrics
+            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
-        calib_detector.run_gps(
-            calib_dataset_tta, y_true_calib,
-            aug_folder=aug_folder,
-            correct_idx_calib=gps_correct_idx,
-            incorrect_idx_calib=gps_incorrect_idx,
-            image_size=image_size,
-            batch_size=tta_gps_batch_size,
-            cache_dir=os.path.dirname(aug_folder),
-            per_fold_evaluation=per_fold_eval
-        )
-        _store_calibration_stats('GPS')
+        if run_calib:
+            calib_detector.run_gps(
+                calib_dataset_tta, y_true_calib,
+                aug_folder=aug_folder,
+                correct_idx_calib=gps_correct_idx,
+                incorrect_idx_calib=gps_incorrect_idx,
+                image_size=image_size,
+                batch_size=tta_gps_batch_size,
+                cache_dir=os.path.dirname(aug_folder),
+                per_fold_evaluation=per_fold_eval
+            )
+            _store_calibration_stats('GPS')
     
     if 'KNN_Raw' in methods:
         print("\nRunning KNN-Raw...")
@@ -985,39 +1005,42 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         k_grid = [1, 5, 10, 20, 50, 100, 200]
         print(f" Using k grid search: {k_grid}")
         
-        uncertainties, metrics = detector.run_knn_raw(
-            test_loader=knn_test_loader,
-            train_loaders=train_loaders,
-            y_true=y_true,
-            layer_name='avgpool',
-            k=k,
-            per_fold_evaluation=per_fold_eval,
-            k_grid=k_grid,
-            calib_loader=knn_calib_loader,
-            y_true_calib=y_true_calib
-        )
-        results['KNN_Raw'] = metrics
-        
-        # Print results
-        if 'auroc_f_mean' in metrics:
-            print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
-                  f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
-        else:
-            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        if run_test:
+            uncertainties, metrics = detector.run_knn_raw(
+                test_loader=knn_test_loader,
+                train_loaders=train_loaders,
+                y_true=y_true,
+                layer_name='avgpool',
+                k=k,
+                per_fold_evaluation=per_fold_eval,
+                k_grid=k_grid,
+                calib_loader=knn_calib_loader,
+                y_true_calib=y_true_calib
+            )
+            results['KNN_Raw'] = metrics
+            
+            # Print results
+            if 'auroc_f_mean' in metrics:
+                print(f" AUROC: {metrics['auroc_f_mean']:.4f}±{metrics['auroc_f_std']:.4f}, "
+                      f"AUGRC: {metrics['augrc_mean']:.6f}±{metrics['augrc_std']:.6f}")
+            else:
+                print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
-        k_for_calib = metrics['k_selected'] if 'k_selected' in metrics else (5 if k is None else k)
-        calib_detector.run_knn_raw(
-            test_loader=knn_calib_loader,
-            train_loaders=train_loaders,
-            y_true=y_true_calib,
-            layer_name='avgpool',
-            k=k_for_calib,
-            per_fold_evaluation=per_fold_eval,
-            k_grid=None,
-            calib_loader=None,
-            y_true_calib=None
-        )
-        _store_calibration_stats('KNN_Raw')
+        k_for_calib = (metrics['k_selected'] if 'k_selected' in metrics else (5 if k is None else k)) \
+                      if run_test else 5
+        if run_calib:
+            calib_detector.run_knn_raw(
+                test_loader=knn_calib_loader,
+                train_loaders=train_loaders,
+                y_true=y_true_calib,
+                layer_name='avgpool',
+                k=k_for_calib,
+                per_fold_evaluation=per_fold_eval,
+                k_grid=None,
+                calib_loader=None,
+                y_true_calib=None
+            )
+            _store_calibration_stats('KNN_Raw')
     
     if 'KNN_SHAP' in methods:
         print("\nRunning KNN-SHAP...")
@@ -1026,38 +1049,40 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         parallel_mode = torch.cuda.device_count() >= 3
         n_jobs = 3 if parallel_mode else 1
         
-        uncertainties, metrics = detector.run_knn_shap(
-            calib_loader=calib_loader,
-            test_loader=knn_test_loader,
-            train_loaders=train_loaders,
-            y_true=y_true,
-            flag=flag,
-            layer_name='avgpool',
-            k=5,
-            n_shap_features=50,
-            cache_dir=os.path.join(output_dir, 'shap_cache'),
-            parallel=parallel_mode,
-            n_jobs=n_jobs,
-            per_fold_evaluation=per_fold_eval
-        )
-        results['KNN_SHAP'] = metrics
-        print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        if run_test:
+            uncertainties, metrics = detector.run_knn_shap(
+                calib_loader=calib_loader,
+                test_loader=knn_test_loader,
+                train_loaders=train_loaders,
+                y_true=y_true,
+                flag=flag,
+                layer_name='avgpool',
+                k=5,
+                n_shap_features=50,
+                cache_dir=os.path.join(output_dir, 'shap_cache'),
+                parallel=parallel_mode,
+                n_jobs=n_jobs,
+                per_fold_evaluation=per_fold_eval
+            )
+            results['KNN_SHAP'] = metrics
+            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
-        calib_detector.run_knn_shap(
-            calib_loader=calib_loader,
-            test_loader=knn_calib_loader,
-            train_loaders=train_loaders,
-            y_true=y_true_calib,
-            flag=f"{flag}_calib",
-            layer_name='avgpool',
-            k=5,
-            n_shap_features=50,
-            cache_dir=os.path.join(output_dir, 'shap_cache'),
-            parallel=parallel_mode,
-            n_jobs=n_jobs,
-            per_fold_evaluation=per_fold_eval
-        )
-        _store_calibration_stats('KNN_SHAP')
+        if run_calib:
+            calib_detector.run_knn_shap(
+                calib_loader=calib_loader,
+                test_loader=knn_calib_loader,
+                train_loaders=train_loaders,
+                y_true=y_true_calib,
+                flag=f"{flag}_calib",
+                layer_name='avgpool',
+                k=5,
+                n_shap_features=50,
+                cache_dir=os.path.join(output_dir, 'shap_cache'),
+                parallel=parallel_mode,
+                n_jobs=n_jobs,
+                per_fold_evaluation=per_fold_eval
+            )
+            _store_calibration_stats('KNN_SHAP')
     
     # ========================================================================
     # MC DROPOUT - RUN LAST TO AVOID INTERFERING WITH OTHER METHODS
@@ -1079,30 +1104,35 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             f"persistent_workers={mcd_persistent_workers}, prefetch_factor={mcd_prefetch_factor}"
         )
 
-        uncertainties, metrics = detector.run_mcdropout(
-            test_dataset, y_true,
-            batch_size=batch_size,
-            num_samples=30,
-            per_fold_evaluation=per_fold_eval,
-            num_workers=mcd_num_workers,
-            pin_memory=mcd_pin_memory,
-            persistent_workers=mcd_persistent_workers,
-            prefetch_factor=mcd_prefetch_factor
-        )
-        results['MCDropout'] = metrics
-        print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+        try:
+            if run_test:
+                uncertainties, metrics = detector.run_mcdropout(
+                    test_dataset, y_true,
+                    batch_size=batch_size,
+                    num_samples=30,
+                    per_fold_evaluation=per_fold_eval,
+                    num_workers=mcd_num_workers,
+                    pin_memory=mcd_pin_memory,
+                    persistent_workers=mcd_persistent_workers,
+                    prefetch_factor=mcd_prefetch_factor
+                )
+                results['MCDropout'] = metrics
+                print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
-        calib_detector.run_mcdropout(
-            calib_dataset, y_true_calib,
-            batch_size=batch_size,
-            num_samples=30,
-            per_fold_evaluation=per_fold_eval,
-            num_workers=mcd_num_workers,
-            pin_memory=mcd_pin_memory,
-            persistent_workers=mcd_persistent_workers,
-            prefetch_factor=mcd_prefetch_factor
-        )
-        _store_calibration_stats('MCDropout')
+            if run_calib:
+                calib_detector.run_mcdropout(
+                    calib_dataset, y_true_calib,
+                    batch_size=batch_size,
+                    num_samples=30,
+                    per_fold_evaluation=per_fold_eval,
+                    num_workers=mcd_num_workers,
+                    pin_memory=mcd_pin_memory,
+                    persistent_workers=mcd_persistent_workers,
+                    prefetch_factor=mcd_prefetch_factor
+                )
+                _store_calibration_stats('MCDropout')
+        except ValueError as e:
+            print(f" [SKIPPED] MCDropout: {e}")
 
     # ========================================================================
     # Z-SCORE AGGREGATION METHODS (CALLABLE VIA --methods)
@@ -1193,6 +1223,22 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     if calibration_zscore_stats:
         detector._results['Calibration_ZScore_Stats'] = calibration_zscore_stats
         print("\nStored calibration z-score stats (means/stds only) for later aggregation.")
+    
+    # ========================================================================
+    # CALIB-ONLY: save stats and return early (skip full benchmark output)
+    # ========================================================================
+    if run_mode == 'calib_only':
+        from datetime import datetime
+        import json
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        setup_suffix = f"_{setup}" if setup else ""
+        calib_stats_path = os.path.join(
+            output_dir, f'{flag}_{model_backbone}{setup_suffix}_calib_zscore_stats_{timestamp}.json'
+        )
+        with open(calib_stats_path, 'w') as f:
+            json.dump(calibration_zscore_stats, f, indent=2)
+        print(f"\nCalib-only mode: Z-score stats saved to {calib_stats_path}")
+        return {}
     
     # ========================================================================
     # SAVE RESULTS AND FIGURES (via FailureDetector)
@@ -1340,8 +1386,14 @@ if __name__ == '__main__':
         help='Number of benchmark processes running simultaneously on this host (used to throttle CPU threads/workers per process).'
     )
     parser.add_argument(
-        '--max-loader-workers', type=int, default=32,
-        help='Hard cap for DataLoader workers per process (default: 32).'
+        '--max-loader-workers', type=int, default=48,
+        help='Hard cap for DataLoader workers per process (default: 48).'
+    )
+    parser.add_argument(
+        '--run-mode', type=str, choices=['both', 'calib_only', 'test_only'], default='both',
+        help="Execution mode: 'both' (default) runs calib+test; 'calib_only' only runs "
+             "calib_detector to collect z-score normalization stats (saves JSON, skips test); "
+             "'test_only' skips calib_detector and only evaluates on the test set."
     )
     
     args = parser.parse_args()
@@ -1379,5 +1431,6 @@ if __name__ == '__main__':
         corrupt_calib=args.corrupt_calib,
         new_class_shift=args.new_class_shift,
         concurrent_processes=args.concurrent_processes,
-        max_loader_workers=args.max_loader_workers
+        max_loader_workers=args.max_loader_workers,
+        run_mode=args.run_mode
     )

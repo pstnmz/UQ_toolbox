@@ -146,6 +146,9 @@ def generate_command(
     per_fold_eval: bool = True,
     output_dir: str = './uq_benchmark_results',
     new_class_shift: bool = False,
+    run_mode: str = 'both',
+    max_loader_workers: int = 48,
+    concurrent_processes: int = 1,
     **kwargs
 ) -> str:
     """
@@ -215,6 +218,15 @@ def generate_command(
     if new_class_shift and dataset in DATASETS_NEW_CLASS_SHIFT:
         cmd_parts.append("--new-class-shift")
     
+    # Run mode
+    if run_mode != 'both':
+        cmd_parts.append(f"--run-mode {run_mode}")
+
+    # Worker / parallelism hints
+    cmd_parts.append(f"--max-loader-workers {max_loader_workers}")
+    if concurrent_processes > 1:
+        cmd_parts.append(f"--concurrent-processes {concurrent_processes}")
+
     return ' '.join(cmd_parts)
 
 
@@ -231,7 +243,10 @@ def generate_all_commands(
     corruption_severity: int = 0,
     corrupt_test: bool = False,
     corrupt_calib: bool = False,
-    new_class_shift: bool = False
+    new_class_shift: bool = False,
+    run_mode: str = 'both',
+    max_loader_workers: int = 48,
+    concurrent_processes: int = 1
 ) -> List[Dict]:
     """
     Generate all benchmark commands for specified configurations.
@@ -269,7 +284,10 @@ def generate_all_commands(
                     corruption_severity=corruption_severity,
                     corrupt_test=corrupt_test,
                     corrupt_calib=corrupt_calib,
-                    new_class_shift=new_class_shift
+                    new_class_shift=new_class_shift,
+                    run_mode=run_mode,
+                    max_loader_workers=max_loader_workers,
+                    concurrent_processes=concurrent_processes
                 )
                 
                 commands.append({
@@ -449,6 +467,21 @@ def main():
     
     # Control flags
     parser.add_argument(
+        '--run-mode', type=str, choices=['both', 'calib_only', 'test_only'], default='both',
+        help="Execution mode passed to run_medmnist_benchmark: 'both' (default) runs calib+test; "
+             "'calib_only' collects z-score normalization stats only; "
+             "'test_only' skips calib_detector."
+    )
+    parser.add_argument(
+        '--max-loader-workers', type=int, default=48,
+        help='Hard cap for DataLoader workers per spawned process (default: 48).'
+    )
+    parser.add_argument(
+        '--concurrent-processes', type=int, default=1,
+        help='Number of benchmark processes running simultaneously on this host '
+             '(used to throttle CPU per process, default: 1).'
+    )
+    parser.add_argument(
         '--dry-run', action='store_true',
         help='Print commands without executing them'
     )
@@ -492,7 +525,10 @@ def main():
         corruption_severity=args.corruption_severity,
         corrupt_test=args.corrupt_test,
         corrupt_calib=args.corrupt_calib,
-        new_class_shift=args.new_class_shift
+        new_class_shift=args.new_class_shift,
+        run_mode=args.run_mode,
+        max_loader_workers=args.max_loader_workers,
+        concurrent_processes=args.concurrent_processes
     )
     
     if not commands:

@@ -62,10 +62,12 @@ class TTAMethod(UQMethod):
         
         Returns:
             tuple or np.ndarray: 
-                - If return_per_fold=True: (stds, per_fold_stds) where stds is [M, N] or [N]
+                - If return_per_fold=True: (stds, per_fold_stds, per_fold_mean_preds) where
+                  stds/per_fold_stds are [M, N] per-model uncertainties and
+                  per_fold_mean_preds [M, N] are argmax of mean softmax across augmentations
                 - Otherwise: stds [N]
         """
-        stds, _, per_fold_stds = TTA(
+        stds, _, per_fold_stds, per_fold_mean_preds = TTA(
             self.transformations, models, dataset, device,
             nb_augmentations=self.nb_augmentations,
             usingBetterRandAugment=False,  # Use torchvision.RandAugment for TTA
@@ -77,7 +79,7 @@ class TTAMethod(UQMethod):
         )
         
         if return_per_fold:
-            return stds, per_fold_stds
+            return stds, per_fold_stds, per_fold_mean_preds
         return np.array(stds)
 
 
@@ -166,7 +168,7 @@ class GPSMethod(UQMethod):
             raise RuntimeError("No valid policies extracted from search results")
         
         # Call TTA in GPS mode
-        stds, _, per_fold_stds = TTA(
+        stds, _, per_fold_stds, per_fold_mean_preds = TTA(
             transformations=transformation_pipeline,
             models=models,
             dataset=dataset,
@@ -181,7 +183,7 @@ class GPSMethod(UQMethod):
         )
         
         if return_per_fold:
-            return stds, per_fold_stds
+            return stds, per_fold_stds, per_fold_mean_preds
         return np.array(stds)
 
 
@@ -410,6 +412,7 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
             # GPS mode: transformations is [[group1_policies], [group2_policies], [group3_policies]]
             all_groups_stds = []
             all_groups_model_stds = [] if ensemble_mode else None
+            all_groups_model_mean_probs = [] if ensemble_mode else None  # [G, M, N, C]
             
             # Memory-efficient mode: process one policy at a time if group is large
             # Heuristic: if K policies * N samples * batch_size might exceed RAM, go sequential
@@ -465,6 +468,12 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
                         
                         all_groups_model_stds.append(np.array(model_stds))  # [M, N]
                         group_stds = np.mean(model_stds, axis=0)  # [N]
+                        # Per-model mean softmax probs for this group: [M, N, C]
+                        group_model_mean_probs = np.array([
+                            torch.stack(model_policy_preds[mi], dim=0).mean(dim=0).cpu().numpy()
+                            for mi in range(M)
+                        ])
+                        all_groups_model_mean_probs.append(group_model_mean_probs)  # [M, N, C]
                     else:
                         # Ensemble averaging: track [K, N, num_classes]
                         all_policy_preds = []
@@ -526,6 +535,12 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
                         
                         # Store per-model stds for this group
                         all_groups_model_stds.append(np.array(model_stds))  # [M, N]
+                        # Per-model mean softmax probs for this group: [M, N, C]
+                        group_model_mean_probs = np.array([
+                            predictions[mi].mean(dim=0).cpu().numpy()
+                            for mi in range(M)
+                        ])
+                        all_groups_model_mean_probs.append(group_model_mean_probs)  # [M, N, C]
                         
                         # Average across models for group-level uncertainty
                         group_stds = np.mean(model_stds, axis=0)  # [N]
@@ -552,8 +567,12 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
             if ensemble_mode and return_per_fold:
                 # Average per-model stds across groups: [G, M, N] → [M, N]
                 per_fold_stds = np.mean(all_groups_model_stds, axis=0)  # [M, N]
+                # Average per-model mean probs across groups: [G, M, N, C] → [M, N, C] → argmax [M, N]
+                mean_probs_across_groups = np.mean(all_groups_model_mean_probs, axis=0)  # [M, N, C]
+                per_fold_mean_predictions = np.argmax(mean_probs_across_groups, axis=2)  # [M, N]
             else:
                 per_fold_stds = None
+                per_fold_mean_predictions = None
         else:
             # Single policy or standard TTA: process each augmentation one by one
             if ensemble_mode:
@@ -596,6 +615,14 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
                 # Convert to numpy array: [M, N]
                 model_stds_array = np.array(model_stds)
                 
+                # Per-fold mean predictions: argmax of mean softmax over augmentations per fold
+                model_mean_preds_accum = []
+                for model_idx in range(M):
+                    model_aug_preds_stacked = torch.stack(model_predictions[model_idx], dim=0)  # [nb_aug, N, C]
+                    mean_probs = model_aug_preds_stacked.mean(dim=0)  # [N, C]
+                    model_mean_preds_accum.append(torch.argmax(mean_probs, dim=1).cpu().numpy())  # [N]
+                per_fold_mean_predictions = np.array(model_mean_preds_accum)  # [M, N]
+                
                 # Return per-fold or averaged
                 if return_per_fold:
                     stds = model_stds_array  # [M, N]
@@ -623,12 +650,13 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
                 averaged_predictions = torch.stack(predictions, dim=0).permute(1, 0, 2)  # [batch_size, nb_augmentations, num_classes]
                 stds = compute_stds(averaged_predictions)
                 per_fold_stds = None  # No per-fold data in standard mode
+                per_fold_mean_predictions = None
     
     # Ensure stds is always a numpy array (compute_stds returns list)
     if isinstance(stds, list):
         stds = np.array(stds)
     
-    return stds, averaged_predictions, per_fold_stds
+    return stds, averaged_predictions, per_fold_stds, per_fold_mean_predictions
 
 
 def apply_augmentations(dataset, nb_augmentations, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations=None, batch_size=None, cached_dataset=None, dataloader_workers=None):
