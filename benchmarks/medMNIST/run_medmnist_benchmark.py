@@ -75,7 +75,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     print(f"Using FailCatcher v{ToolBox.__version__}")
     if new_class_shift:
         print(f"New Class Shift: Evaluating unseen classes (artificial test set)")
-        print(f" Test = New classes (failures) + Unanimous correct predictions (known classes)")
+        print(f" Test = New/OOD classes (failures) + ALL known-class samples (dynamic success/failure per method)")
     if corruption_severity > 0:
         print(f"Covariate Shift: Random corruptions (severity={corruption_severity}/5)")
         print(f" Test set: {'Corrupted' if corrupt_test else 'Clean'}")
@@ -314,6 +314,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     test_cache_path = os.path.join(cache_dir, f'{flag}_{model_backbone}{setup_suffix}{corruption_suffix}{new_class_suffix}_test_results.npz')
     
     # Try to load cached results FIRST
+    y_true_original = None  # Original class labels for new_class_shift stochastic methods
     cache_loaded = False
     if os.path.exists(calib_cache_path) and os.path.exists(test_cache_path):
         print("\nLoading cached evaluation results...")
@@ -349,12 +350,14 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         indiv_scores = test_cache['indiv_scores']  # [N, K, C]
         logits = test_cache['logits']  # [N, C]
         
-        # For new class shift: override with binary ground truth
-        if new_class_shift and hasattr(test_dataset, 'binary_gt'):
-            print(" Using binary ground truth for new class shift evaluation (from cache)")
-            y_true = test_dataset.binary_gt
-            correct_idx = np.where(y_true == 0)[0]
-            incorrect_idx = np.where(y_true == 1)[0]
+        # For new class shift: load binary_gt and y_true_original early for dynamic index recomputation
+        if new_class_shift:
+            if 'binary_gt' in test_cache.files:
+                y_true = test_cache['binary_gt']  # 0=known class, 1=OOD
+            if 'y_true_original' in test_cache.files:
+                y_true_original = test_cache['y_true_original']
+            else:
+                print(" [WARNING] y_true_original not in cache — delete the test cache file to regenerate.")
         
         # Check if per-fold logits are cached (new format)
         if 'indiv_logits' in test_cache.files:
@@ -393,13 +396,8 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             per_fold_incorrect_idx_calib = []
             
             for fold_idx in range(per_fold_predictions.shape[0]):
-                # For new class shift: use binary ground truth
-                if new_class_shift and hasattr(test_dataset, 'binary_gt'):
-                    fold_correct = np.where(y_true == 0)[0]
-                    fold_incorrect = np.where(y_true == 1)[0]
-                else:
-                    fold_correct = np.where(per_fold_predictions[fold_idx] == y_true)[0]
-                    fold_incorrect = np.where(per_fold_predictions[fold_idx] != y_true)[0]
+                fold_correct = np.where(per_fold_predictions[fold_idx] == y_true)[0]
+                fold_incorrect = np.where(per_fold_predictions[fold_idx] != y_true)[0]
                 per_fold_correct_idx.append(fold_correct)
                 per_fold_incorrect_idx.append(fold_incorrect)
                 
@@ -407,6 +405,17 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                 fold_incorrect_calib = np.where(per_fold_predictions_calib[fold_idx] != y_true_calib)[0]
                 per_fold_correct_idx_calib.append(fold_correct_calib)
                 per_fold_incorrect_idx_calib.append(fold_incorrect_calib)
+        
+        # For new class shift: always recompute per-fold indices dynamically from predictions
+        if new_class_shift and y_true_original is not None:
+            _known_mask = y_true_original != -1
+            per_fold_correct_idx = []
+            per_fold_incorrect_idx = []
+            for fold_idx in range(per_fold_predictions.shape[0]):
+                _fc = np.where((per_fold_predictions[fold_idx] == y_true_original) & _known_mask)[0]
+                _fi = np.where(~((per_fold_predictions[fold_idx] == y_true_original) & _known_mask))[0]
+                per_fold_correct_idx.append(_fc)
+                per_fold_incorrect_idx.append(_fi)
         
         # Transpose to [K, N, C] format for per-fold evaluation
         indiv_scores = np.transpose(indiv_scores, (1, 0, 2))  # [K, N, C]
@@ -419,13 +428,28 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         y_pred = np.argmax(y_scores, axis=1)
         y_pred_calib = np.argmax(y_scores_calib, axis=1)
         
-        # For new class shift: extract binary_gt from cache and use it as y_true for risk computation
-        if new_class_shift and 'binary_gt' in test_cache.files:
-            binary_gt = test_cache['binary_gt']
+        # For new class shift: ensemble correct = intersection across all folds
+        # (correct in every fold), matching the stochastic-method convention.
+        if new_class_shift and y_true_original is not None:
+            _known_mask = y_true_original != -1
+            _all_correct = _known_mask.copy()
+            for _fc in per_fold_correct_idx:
+                _fold_mask = np.zeros(len(y_true_original), dtype=bool)
+                _fold_mask[_fc] = True
+                _all_correct &= _fold_mask
+            correct_idx = np.where(_all_correct)[0]
+            incorrect_idx = np.where(~_all_correct)[0]
+        
+        # Print summary
+        if new_class_shift:
+            n_known = int(np.sum(y_true == 0))
+            n_ood = int(np.sum(y_true == 1))
             print(f" Loaded cached results (new class shift mode)")
-            print(f" Test accuracy: {len(correct_idx) / len(binary_gt):.4f} (failure rate: {np.sum(binary_gt)/len(binary_gt):.4f})")
-            # Override y_true with binary_gt for proper risk computation
-            y_true = binary_gt
+            print(f" Test set: {n_known} known-class + {n_ood} OOD = {len(y_true)} total ({100*n_ood/len(y_true):.1f}% OOD)")
+            if y_true_original is not None:
+                print(f" Dynamic ensemble: {len(correct_idx)} successes, {len(incorrect_idx)} failures")
+            else:
+                print(" [WARNING] y_true_original missing — delete cache to regenerate with dynamic indices.")
         else:
             print(f" Loaded cached results")
             print(f" Test accuracy: {len(correct_idx) / len(y_true):.4f}")
@@ -440,20 +464,22 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         # For new class shift: replace y_true with binary ground truth for failure detection
         if new_class_shift and hasattr(test_dataset, 'binary_gt'):
             print(" Using binary ground truth for new class shift evaluation")
-            y_true_original = y_true.copy()  # Keep original labels
-            y_true = test_dataset.binary_gt  # Binary: 0=correct (known class), 1=failure (new class)
+            y_true_original = y_true.copy()  # Keep original class labels
+            y_true = test_dataset.binary_gt  # Binary: 0=known class, 1=OOD
             
-            # Recompute correct/incorrect based on binary ground truth
-            # Correct = known class samples (-1 in original labels means new class)
-            correct_idx = np.where(y_true == 0)[0]  # Known classes
-            incorrect_idx = np.where(y_true == 1)[0]  # New classes (all failures by definition)
-            print(f" Binary GT: {len(correct_idx)} known class (correct), {len(incorrect_idx)} new class (failures)")
+            # Preliminary ensemble indices (will be refined to fold intersection after per-fold loop)
+            known_mask = y_true_original != -1
+            correct_mask = (y_pred == y_true_original) & known_mask
+            correct_idx = np.where(correct_mask)[0]
+            incorrect_idx = np.where(~correct_mask)[0]
         
         # Calibration set
         y_true_calib, y_scores_calib, y_pred_calib, correct_idx_calib, incorrect_idx_calib, indiv_scores_calib_raw, logits_calib = \
             uq.evaluate_models_on_loader(models, calib_loader, device, return_logits=True)
         
-        print(f" Test accuracy: {len(correct_idx)/len(y_true):.4f}")
+        if new_class_shift and hasattr(test_dataset, 'binary_gt'):
+            print(f" Test set composition: {len(correct_idx)}/{len(y_true)} ensemble successes "
+                  f"({100*len(correct_idx)/len(y_true):.1f}%) — not model accuracy")
         
         # Compute per-fold logits from models
         print("\nComputing per-fold logits for calibration...")
@@ -507,12 +533,11 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             # Test set
             fold_preds = np.argmax(indiv_scores[fold_idx], axis=1)  # [N]
             
-            # For new class shift: use binary ground truth
-            if new_class_shift and hasattr(test_dataset, 'binary_gt'):
-                # Known classes (binary_gt=0): correct if model predicts correct original label
-                # New classes (binary_gt=1): always incorrect (failures by definition)
-                fold_correct = np.where(y_true == 0)[0]  # All known class samples
-                fold_incorrect = np.where(y_true == 1)[0]  # All new class samples
+            # For new class shift: dynamic per-fold success from actual fold predictions
+            if new_class_shift and y_true_original is not None:
+                _known_mask = y_true_original != -1
+                fold_correct = np.where((fold_preds == y_true_original) & _known_mask)[0]
+                fold_incorrect = np.where(~((fold_preds == y_true_original) & _known_mask))[0]
             else:
                 fold_correct = np.where(fold_preds == y_true)[0]
                 fold_incorrect = np.where(fold_preds != y_true)[0]
@@ -528,6 +553,19 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             per_fold_incorrect_idx_calib.append(fold_incorrect_calib)
             
             print(f" Fold {fold_idx}: {len(fold_correct)} correct, {len(fold_incorrect)} incorrect (test)")
+        
+        # For new class shift: refine ensemble correct_idx to fold intersection
+        if new_class_shift and y_true_original is not None:
+            _known_mask = y_true_original != -1
+            _all_correct = _known_mask.copy()
+            for _fc in per_fold_correct_idx:
+                _fold_mask = np.zeros(len(y_true_original), dtype=bool)
+                _fold_mask[_fc] = True
+                _all_correct &= _fold_mask
+            correct_idx = np.where(_all_correct)[0]
+            incorrect_idx = np.where(~_all_correct)[0]
+            print(f" Dynamic ensemble (fold intersection): {len(correct_idx)} successes, "
+                  f"{len(incorrect_idx)} failures — failure rate: {100*len(incorrect_idx)/len(y_true):.1f}%")
         
         # Compute per-fold predictions [M, N] for caching
         per_fold_predictions = np.argmax(indiv_scores, axis=2)  # [K, N, C] → [K, N]
@@ -565,6 +603,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         )
         if new_class_shift and hasattr(test_dataset, 'binary_gt'):
             cache_data['binary_gt'] = test_dataset.binary_gt  # Save binary ground truth for risk computation
+            cache_data['y_true_original'] = y_true_original   # Original class labels for stochastic method eval
         np.savez_compressed(test_cache_path, **cache_data)
         print(f" Cached to {cache_dir}")
     
@@ -611,6 +650,52 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     calib_detector.set_per_fold_predictions(per_fold_predictions_calib)
 
     calibration_zscore_stats = {}
+
+    # For amos2022/midog in test_only mode: load pre-computed calibration z-score stats
+    # from the corresponding in-distribution dataset results (organamnist / pathmnist).
+    # This avoids re-running the expensive calibration pass.
+    if run_mode == 'test_only' and base_flag in ['amos2022', 'midog']:
+        import json as _json
+        import glob as _glob
+        calib_source_flag = gps_cache_flag  # 'organamnist' or 'pathmnist'
+        setup_suffix_str = f'_{setup}' if setup else ''
+        # Filename prefix to match (exclude corrupt runs via negative pattern)
+        fname_prefix = f'uq_benchmark_{calib_source_flag}_{model_backbone}{setup_suffix_str}_'
+        # Search directories in priority order
+        _search_dirs = [
+            os.path.join(output_dir),
+            os.path.join(output_dir, 'jsons_results', 'in_distribution'),
+            str(workspace_root / 'Benchmarks' / 'medMNIST' / 'results'),
+            str(workspace_root / 'Benchmarks' / 'medMNIST' / 'results' / 'jsons_results' / 'in_distribution'),
+        ]
+        _loaded_stats = None
+        for _sdir in _search_dirs:
+            _candidates = sorted(_glob.glob(os.path.join(_sdir, f'{fname_prefix}*.json')))
+            # Exclude corrupt runs (they use a different calib distribution)
+            _candidates = [p for p in _candidates if '_corrupt_' not in os.path.basename(p)]
+            if not _candidates:
+                continue
+            # Use the most recent matching file
+            for _cpath in reversed(_candidates):
+                try:
+                    with open(_cpath) as _f:
+                        _jdata = _json.load(_f)
+                    _stats = _jdata.get('methods', {}).get('Calibration_ZScore_Stats')
+                    if _stats:
+                        _loaded_stats = _stats
+                        print(f" Loaded calibration z-score stats from: {_cpath}")
+                        break
+                except Exception as _e:
+                    print(f" [WARNING] Could not load calib stats from {_cpath}: {_e}")
+            if _loaded_stats:
+                break
+        if _loaded_stats:
+            calibration_zscore_stats = _loaded_stats
+        else:
+            print(f" [WARNING] No calibration z-score stats found for "
+                  f"{calib_source_flag} {model_backbone} {setup or 'standard'}.")
+            print(f"  ZScore_Aggregation will be skipped. Run without --run-mode test_only "
+                  f"or run calib_only mode first.")
 
     def _store_calibration_stats(method_key: str):
         """Store mean/std stats from calibration uncertainties for later z-score normalization."""
@@ -777,7 +862,8 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                 batch_size=tta_gps_batch_size,
                 nb_augmentations=5,
                 per_fold_evaluation=per_fold_eval,
-                seed=42
+                seed=42,
+                y_true_original=y_true_original if new_class_shift else None,
             )
             results['TTA'] = metrics
             print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
@@ -945,7 +1031,8 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                 image_size=image_size,
                 batch_size=tta_gps_batch_size,
                 cache_dir=os.path.dirname(aug_folder),
-                per_fold_evaluation=per_fold_eval
+                per_fold_evaluation=per_fold_eval,
+                y_true_original=y_true_original if new_class_shift else None,
             )
             results['GPS'] = metrics
             print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
@@ -1114,7 +1201,8 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                     num_workers=mcd_num_workers,
                     pin_memory=mcd_pin_memory,
                     persistent_workers=mcd_persistent_workers,
-                    prefetch_factor=mcd_prefetch_factor
+                    prefetch_factor=mcd_prefetch_factor,
+                    y_true_original=y_true_original if new_class_shift else None,
                 )
                 results['MCDropout'] = metrics
                 print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
@@ -1271,6 +1359,20 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         setup=setup,
         corruption_info=corruption_info
     )
+
+    # For new_class_shift: append baseline predictor correct/incorrect indices to the NPZ so
+    # that recompute_zscore.py can use a shared, deterministic evaluation set for ZScore
+    # aggregation without needing the separate test cache file.
+    if new_class_shift and 'metrics_file' in saved_paths:
+        with np.load(saved_paths['metrics_file'], allow_pickle=True) as _npf:
+            _npz_data = dict(_npf)
+        _npz_data['baseline_correct_idx'] = correct_idx
+        _npz_data['baseline_incorrect_idx'] = incorrect_idx
+        _npz_data['baseline_per_fold_correct_idx'] = np.array(per_fold_correct_idx, dtype=object)
+        _npz_data['baseline_per_fold_incorrect_idx'] = np.array(per_fold_incorrect_idx, dtype=object)
+        np.savez_compressed(saved_paths['metrics_file'], **_npz_data)
+        print(f" Appended baseline_correct_idx / baseline_per_fold_correct_idx to NPZ "
+              f"({len(correct_idx)} successes, {len(incorrect_idx)} failures).")
     
     # ========================================================================
     # PRINT SUMMARY
@@ -1379,7 +1481,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--new-class-shift', action='store_true', default=False,
-        help='Evaluate new class shift (AMOS and MIDOG only): Create artificial test sets with new classes (failures) + unanimous correct predictions (known classes)'
+        help='Evaluate new class shift (AMOS and MIDOG only): Create artificial test sets with new/OOD classes + ALL known-class samples. Success/failure computed dynamically per method.'
     )
     parser.add_argument(
         '--concurrent-processes', type=int, default=3,

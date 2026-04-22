@@ -1019,7 +1019,8 @@ class FailureDetector:
         pin_memory: bool = False,
         persistent_workers: bool = False,
         prefetch_factor: Optional[int] = None,
-        seed: int = 42
+        seed: int = 42,
+        y_true_original: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Run Monte Carlo Dropout uncertainty quantification.
@@ -1090,7 +1091,7 @@ class FailureDetector:
             predictions_per_fold = per_fold_mean_preds_mcd  # [M, N]
         else:
             predictions_per_fold = None
-        
+
         # Use cached ensemble predictions for ensemble-level correct/incorrect indices
         if self._test_predictions_cache is not None:
             correct_idx = self._test_predictions_cache['correct_idx']
@@ -1102,12 +1103,23 @@ class FailureDetector:
             y_pred = np.argmax(y_scores, axis=1)
             correct_idx = np.where(y_pred == y_true)[0]
             incorrect_idx = np.where(y_pred != y_true)[0]
-        
+
+        # For new_class_shift: replace binary_gt-based indices with stochastic-aware ones.
+        # Per-fold: correct iff mean MCD prediction == original class label (known class only).
+        # Ensemble: intersection of per-fold correct (unanimously correct under MCD).
+        pf_correct_override = None
+        pf_incorrect_override = None
+        if y_true_original is not None:
+            pf_correct_override, pf_incorrect_override, correct_idx, incorrect_idx = \
+                self._compute_new_class_shift_indices(per_fold_mean_preds_mcd, y_true_original)
+
         # use_cached_per_fold_indices=False: derive fold failures from MCD mean predictions,
         # not from the baseline cached per-fold predictions.
         metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
                                        predictions_per_fold=predictions_per_fold,
-                                       use_cached_per_fold_indices=False)
+                                       use_cached_per_fold_indices=False,
+                                       per_fold_correct_idx_override=pf_correct_override,
+                                       per_fold_incorrect_idx_override=pf_incorrect_override)
         metrics['time_seconds'] = timer.elapsed
         
         # Store results (matching TTA pattern)
@@ -1140,7 +1152,8 @@ class FailureDetector:
         mean: float = 0.5,
         std: float = 0.5,
         per_fold_evaluation: bool = True,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        y_true_original: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Run Test-Time Augmentation (TTA).
@@ -1215,14 +1228,25 @@ class FailureDetector:
             y_pred = np.argmax(y_scores, axis=1)
             correct_idx = np.where(y_pred == y_true)[0]
             incorrect_idx = np.where(y_pred != y_true)[0]
-        
+
+        # For new_class_shift: replace binary_gt-based indices with stochastic-aware ones.
+        # Per-fold: correct iff mean TTA prediction == original class label (known class only).
+        # Ensemble: intersection of per-fold correct (unanimously correct under TTA).
+        pf_correct_override = None
+        pf_incorrect_override = None
+        if y_true_original is not None:
+            pf_correct_override, pf_incorrect_override, correct_idx, incorrect_idx = \
+                self._compute_new_class_shift_indices(per_fold_mean_preds_tta, y_true_original)
+
         # Compute metrics based on mode
         if per_fold_evaluation:
             # Per-fold: use TTA's own mean predictions to define fold-level failures.
             # use_cached_per_fold_indices=False so we don't use baseline cached indices.
             metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
                                            predictions_per_fold=per_fold_mean_preds_tta,
-                                           use_cached_per_fold_indices=False)
+                                           use_cached_per_fold_indices=False,
+                                           per_fold_correct_idx_override=pf_correct_override,
+                                           per_fold_incorrect_idx_override=pf_incorrect_override)
         else:
             # Ensemble: compute single metrics using ensemble predictions only
             metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
@@ -1367,7 +1391,8 @@ class FailureDetector:
         mean: float = 0.5,
         std: float = 0.5,
         cache_dir: Optional[str] = None,
-        per_fold_evaluation: bool = True
+        per_fold_evaluation: bool = True,
+        y_true_original: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Run Greedy Policy Search (GPS).
@@ -1494,13 +1519,24 @@ class FailureDetector:
             y_pred = np.argmax(y_scores, axis=1)
             correct_idx = np.where(y_pred == y_true)[0]
             incorrect_idx = np.where(y_pred != y_true)[0]
-        
+
+        # For new_class_shift: replace binary_gt-based indices with stochastic-aware ones.
+        # Per-fold: correct iff mean GPS prediction == original class label (known class only).
+        # Ensemble: intersection of per-fold correct (unanimously correct under GPS).
+        pf_correct_override = None
+        pf_incorrect_override = None
+        if y_true_original is not None:
+            pf_correct_override, pf_incorrect_override, correct_idx, incorrect_idx = \
+                self._compute_new_class_shift_indices(per_fold_mean_preds_gps, y_true_original)
+
         if per_fold_evaluation:
             # Per-fold: use GPS's own mean predictions to define fold-level failures.
             # use_cached_per_fold_indices=False so we don't use baseline cached indices.
             metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
                                            predictions_per_fold=per_fold_mean_preds_gps,
-                                           use_cached_per_fold_indices=False)
+                                           use_cached_per_fold_indices=False,
+                                           per_fold_correct_idx_override=pf_correct_override,
+                                           per_fold_incorrect_idx_override=pf_incorrect_override)
         else:
             metrics = self._compute_metrics(uncertainties, correct_idx, incorrect_idx, y_pred, y_true,
                                            predictions_per_fold=None)
@@ -1839,6 +1875,49 @@ class FailureDetector:
         ensemble_preds = np.mean(all_preds, axis=0)
         return ensemble_preds
     
+    def _compute_new_class_shift_indices(
+        self,
+        per_fold_mean_preds: np.ndarray,
+        y_true_original: np.ndarray,
+    ) -> Tuple[List, List, np.ndarray, np.ndarray]:
+        """
+        Derive stochastic-aware success/failure indices for new_class_shift evaluation.
+
+        For each fold k, a sample is "correct" iff:
+          - it is a *known*-class sample (y_true_original[i] != -1), AND
+          - the stochastic mean prediction for that fold matches the original class label.
+        New-class OOD samples (y_true_original == -1) are always failures.
+
+        The ensemble level uses the *intersection* across all folds (unanimous stochastic
+        agreement), mirroring the deterministic-ensemble logic for baseline methods.
+
+        Args:
+            per_fold_mean_preds: [M, N] argmax of mean stochastic softmax per fold
+            y_true_original:     [N] original class labels; -1 for OOD/new-class samples
+
+        Returns:
+            per_fold_correct_idx   – list of M index arrays (correct per fold)
+            per_fold_incorrect_idx – list of M index arrays (incorrect per fold)
+            ensemble_correct_idx   – correct in ALL folds
+            ensemble_incorrect_idx – complement of ensemble_correct_idx
+        """
+        M = per_fold_mean_preds.shape[0]
+        known_mask = y_true_original != -1  # True = known-class sample
+
+        per_fold_correct_idx = []
+        per_fold_incorrect_idx = []
+        all_folds_correct = known_mask.copy()
+
+        for k in range(M):
+            fold_correct_mask = (per_fold_mean_preds[k] == y_true_original) & known_mask
+            per_fold_correct_idx.append(np.where(fold_correct_mask)[0])
+            per_fold_incorrect_idx.append(np.where(~fold_correct_mask)[0])
+            all_folds_correct &= fold_correct_mask
+
+        ensemble_correct_idx = np.where(all_folds_correct)[0]
+        ensemble_incorrect_idx = np.where(~all_folds_correct)[0]
+        return per_fold_correct_idx, per_fold_incorrect_idx, ensemble_correct_idx, ensemble_incorrect_idx
+
     def _compute_metrics(
         self,
         uncertainties: np.ndarray,
@@ -1848,7 +1927,9 @@ class FailureDetector:
         labels: np.ndarray,
         predictions_per_fold: np.ndarray = None,
         ensemble_uncertainties: np.ndarray = None,
-        use_cached_per_fold_indices: bool = True
+        use_cached_per_fold_indices: bool = True,
+        per_fold_correct_idx_override: Optional[List] = None,
+        per_fold_incorrect_idx_override: Optional[List] = None,
     ) -> Dict[str, Any]:
         """Compute all evaluation metrics.
         
@@ -1858,6 +1939,11 @@ class FailureDetector:
                 methods like TTA/GPS/MCDropout that define per-fold failures from their own
                 mean predictions — in that case pass the method's mean predictions via
                 predictions_per_fold and let compute_all_metrics_per_fold derive the indices.
+            per_fold_correct_idx_override: When provided, replaces both the cached and
+                the derived per-fold correct indices.  Used by stochastic methods under
+                new_class_shift so that success/failure is judged by the stochastic mean
+                prediction vs the original class label rather than by binary_gt.
+            per_fold_incorrect_idx_override: Companion to per_fold_correct_idx_override.
         """
         # Check if uncertainties are per-fold [num_folds, N] or averaged [N]
         if uncertainties.ndim == 2:
@@ -1883,6 +1969,12 @@ class FailureDetector:
             if use_cached_per_fold_indices and self._test_predictions_cache is not None:
                 per_fold_correct_idx = self._test_predictions_cache.get('per_fold_correct_idx')
                 per_fold_incorrect_idx = self._test_predictions_cache.get('per_fold_incorrect_idx')
+
+            # Explicit overrides take priority (used by stochastic methods under new_class_shift).
+            if per_fold_correct_idx_override is not None:
+                per_fold_correct_idx = per_fold_correct_idx_override
+            if per_fold_incorrect_idx_override is not None:
+                per_fold_incorrect_idx = per_fold_incorrect_idx_override
             
             # Per-fold uncertainties: compute metrics per fold, then aggregate
             metrics = uq.compute_all_metrics_per_fold(

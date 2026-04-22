@@ -227,27 +227,28 @@ def load_amos_dataset(transform, transform_tta, batch_size=256, workspace_root=N
     return test_dataset, test_loader, test_dataset_tta, filtered_images, filtered_labels
 
 
-def load_amos_for_new_class_shift(transform, transform_tta, models, device, batch_size=256, workspace_root=None):
+def load_amos_for_new_class_shift(transform, transform_tta, models=None, device=None, batch_size=256, workspace_root=None):
     """
     Load AMOS-2022 dataset for new class shift evaluation.
     Creates artificial test set with:
     - New classes (unmapped organs): All samples (these are failures by definition)
-    - Known classes (mapped organs): Only samples correctly predicted by ALL 5 folds (unanimous agreement)
+    - Known classes (mapped organs): ALL samples regardless of model predictions
     
-    This paradigm tests UQ methods' ability to detect novel/unseen classes while avoiding
-    confounding effects from samples that are simply hard to classify.
+    Success/failure labels for each method are computed dynamically from that method's
+    own predictions (per-fold for stochastic methods, ensemble mean for baseline).
+    binary_gt encodes class membership only: 0 = known class, 1 = new/OOD class.
     
     Args:
         transform: Transform for normalized data
         transform_tta: Transform for unnormalized data (TTA)
-        models: List of 5 trained models (CV folds)
-        device: torch device
+        models: Unused (kept for backward compatibility)
+        device: Unused (kept for backward compatibility)
         batch_size: Batch size for DataLoader
         workspace_root: Path to workspace root (optional, auto-detected if None)
     
     Returns:
         tuple: (test_dataset, test_loader, test_dataset_tta)
-            All use artificial labels: 0 = correctly predicted known class, 1 = new class (failure)
+            binary_gt attribute: 0 = known class, 1 = new class (OOD)
     """
     if workspace_root is None:
         workspace_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -300,51 +301,10 @@ def load_amos_for_new_class_shift(transform, transform_tta, models, device, batc
     print(f" Known classes (mapped): {len(known_class_indices)} samples")
     print(f" New classes (unmapped): {len(new_class_indices)} samples")
     
-    # Evaluate models on known class samples to find unanimous correct predictions
-    print(" Evaluating models to find unanimous correct predictions...")
-    known_images = amos_images[known_class_indices]
+    # Use ALL known-class samples (success/failure determined dynamically per method)
     known_labels = np.array(known_class_labels_organamnist)
-    
-    # Create temporary dataset for evaluation (normalized)
-    temp_dataset = AMOSDataset(known_images, known_labels, transform=transform)
-    temp_loader = DataLoader(temp_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-    
-    # Get predictions from all 5 folds
-    all_fold_predictions = []  # [K, N_known]
-    for fold_idx, model in enumerate(models):
-        model.eval()
-        fold_preds = []
-        with torch.no_grad():
-            for batch in temp_loader:
-                if isinstance(batch, dict):
-                    images = batch["image"].to(device)
-                    labels = batch["label"]
-                else:
-                    images, labels = batch
-                    images = images.to(device)
-                
-                outputs = model(images)
-                preds = torch.argmax(outputs, dim=1).cpu().numpy()
-                fold_preds.append(preds)
-        
-        all_fold_predictions.append(np.concatenate(fold_preds))
-        fold_acc = np.mean(all_fold_predictions[-1] == known_labels)
-        print(f" Fold {fold_idx}: {fold_acc:.4f} accuracy on known classes")
-    
-    all_fold_predictions = np.stack(all_fold_predictions, axis=0)  # [K, N_known]
-    
-    # Find unanimous correct predictions (all 5 folds agree and are correct)
-    unanimous_correct_mask = np.all(all_fold_predictions == known_labels[None, :], axis=0)
-    unanimous_correct_local_idx = np.where(unanimous_correct_mask)[0]  # Indices within known_class_indices
-    
-    print(f" Unanimous correct: {len(unanimous_correct_local_idx)}/{len(known_class_indices)} "
-          f"({100*len(unanimous_correct_local_idx)/len(known_class_indices):.1f}%)")
-    
-    # Create artificial test set
-    # Correct samples: unanimous correct predictions from known classes
-    correct_global_indices = [known_class_indices[i] for i in unanimous_correct_local_idx]
-    correct_images = amos_images[correct_global_indices]
-    correct_original_labels = known_labels[unanimous_correct_local_idx]  # Keep original OrganaMNIST labels
+    correct_images = amos_images[known_class_indices]  # All known-class images
+    correct_original_labels = known_labels  # All known-class labels
     
     # Failure samples: all new class samples
     failure_images = amos_images[new_class_indices]
@@ -360,13 +320,14 @@ def load_amos_for_new_class_shift(transform, transform_tta, models, device, batc
         np.ones(len(failure_images), dtype=np.int64)    # New classes = failures
     ], axis=0)
     
-    print(f" Artificial test set: {len(correct_images)} correct + {len(failure_images)} failures "
+    print(f" Artificial test set: {len(correct_images)} known class + {len(failure_images)} OOD "
           f"= {len(artificial_images)} total")
-    print(f" Failure rate: {100*len(failure_images)/len(artificial_images):.1f}%")
+    print(f" OOD rate: {100*len(failure_images)/len(artificial_images):.1f}%")
+    print(f" (success/failure per method computed dynamically from predictions)")
     
     # Create datasets with original labels for model evaluation, binary_gt stored as attribute
     test_dataset = AMOSDataset(artificial_images, original_labels, transform=transform)
-    test_dataset.binary_gt = binary_gt  # For failure detection metrics
+    test_dataset.binary_gt = binary_gt  # 0=known class, 1=OOD class
     test_loader = DataLoader(
         test_dataset, batch_size=batch_size, shuffle=False, num_workers=4
     )
@@ -376,30 +337,31 @@ def load_amos_for_new_class_shift(transform, transform_tta, models, device, batc
     return test_dataset, test_loader, test_dataset_tta
 
 
-def load_midog_for_new_class_shift(transform, transform_tta, models, device, 
-                                    pathmnist_test_dataset,
+def load_midog_for_new_class_shift(transform, transform_tta, models=None, device=None, 
+                                    pathmnist_test_dataset=None,
                                     batch_size=256, workspace_root=None):
     """
     Load MIDOG++ canine patches dataset for new class shift evaluation.
     Creates artificial test set with:
-    - New domain (MIDOG++ canine tumors): All patches (these are failures by definition - out-of-distribution)
-    - Known domain (PathMNIST): Only samples correctly predicted by ALL 5 folds (unanimous agreement)
+    - New domain (MIDOG++ canine tumors): All patches (OOD, always failures)
+    - Known domain (PathMNIST): ALL test samples regardless of model predictions
     
-    This paradigm tests UQ methods' ability to detect out-of-distribution samples (domain shift)
-    while avoiding confounding effects from samples that are simply hard to classify.
+    Success/failure labels for each method are computed dynamically from that method's
+    own predictions (per-fold for stochastic methods, ensemble mean for baseline).
+    binary_gt encodes domain membership only: 0 = PathMNIST (known), 1 = MIDOG (OOD).
     
     Args:
         transform: Transform for normalized data
         transform_tta: Transform for unnormalized data (TTA)
-        models: List of 5 trained PathMNIST models (CV folds)
-        device: torch device
+        models: Unused (kept for backward compatibility)
+        device: Unused (kept for backward compatibility)
         pathmnist_test_dataset: PathMNIST test dataset (pre-loaded)
         batch_size: Batch size for DataLoader
         workspace_root: Path to workspace root (optional, auto-detected if None)
     
     Returns:
         tuple: (test_dataset, test_loader, test_dataset_tta)
-            All use artificial labels: 0 = correctly predicted PathMNIST, 1 = MIDOG (failure/OOD)
+            binary_gt attribute: 0 = PathMNIST (known class), 1 = MIDOG (OOD)
     """
     from pathlib import Path as PathLib
     
@@ -430,69 +392,14 @@ def load_midog_for_new_class_shift(transform, transform_tta, models, device,
     
     print(f" MIDOG++ patches: {len(midog_images)} samples (canine tumors - OOD for PathMNIST)")
     
-    # Use pre-loaded PathMNIST test set to find unanimous correct predictions
+    # Use ALL PathMNIST test samples (success/failure determined dynamically per method)
     print(" Using PathMNIST test set for in-distribution samples...")
-    print(f" PathMNIST test: {len(pathmnist_test_dataset)} samples")
+    print(f" PathMNIST test: {len(pathmnist_test_dataset)} samples (all included)")
     
-    # Create loader for PathMNIST test set
-    pathmnist_loader = DataLoader(pathmnist_test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-    
-    # Evaluate models on PathMNIST test set to find unanimous correct predictions
-    print(" Evaluating PathMNIST models to find unanimous correct predictions...")
-    
-    # Get ground truth labels from test set
-    pathmnist_labels = []
+    # Extract all PathMNIST samples
+    pathmnist_all_images = []
+    pathmnist_all_labels = []
     for idx in range(len(pathmnist_test_dataset)):
-        _, label = pathmnist_test_dataset[idx]
-        # Handle labels that might be arrays or scalars
-        if isinstance(label, np.ndarray):
-            label = label.flatten()[0] if label.size > 0 else label
-        pathmnist_labels.append(label)
-    pathmnist_labels = np.array(pathmnist_labels).flatten()
-    
-    # Get predictions from all 5 folds
-    all_fold_predictions = []  # [K, N_pathmnist]
-    for fold_idx, model in enumerate(models):
-        model.eval()
-        fold_preds = []
-        with torch.no_grad():
-            for batch_data in pathmnist_loader:
-                # Handle different batch formats
-                if isinstance(batch_data, dict):
-                    images = batch_data["image"].to(device)
-                elif isinstance(batch_data, (tuple, list)):
-                    images = batch_data[0].to(device)
-                else:
-                    images = batch_data.to(device)
-                
-                outputs = model(images)
-                preds = torch.argmax(outputs, dim=1).cpu().numpy()
-                fold_preds.append(preds)
-        
-        all_fold_predictions.append(np.concatenate(fold_preds))
-        fold_acc = np.mean(all_fold_predictions[-1] == pathmnist_labels)
-        print(f" Fold {fold_idx}: {fold_acc:.4f} accuracy on PathMNIST")
-        
-        # Debug: Check first few predictions vs labels
-        if fold_idx == 0:
-            print(f" First 20 predictions: {all_fold_predictions[-1][:20]}")
-            print(f" First 20 labels:      {pathmnist_labels[:20]}")
-            print(f" Label distribution - predictions: {np.bincount(all_fold_predictions[-1], minlength=9)}")
-            print(f" Label distribution - ground truth: {np.bincount(pathmnist_labels, minlength=9)}")
-    
-    all_fold_predictions = np.stack(all_fold_predictions, axis=0)  # [K, N_pathmnist]
-    
-    # Find unanimous correct predictions (all 5 folds agree and are correct)
-    unanimous_correct_mask = np.all(all_fold_predictions == pathmnist_labels[None, :], axis=0)
-    unanimous_correct_idx = np.where(unanimous_correct_mask)[0]
-    
-    print(f" Unanimous correct: {len(unanimous_correct_idx)}/{len(pathmnist_test_dataset)} "
-          f"({100*len(unanimous_correct_idx)/len(pathmnist_test_dataset):.1f}%)")
-    
-    # Extract unanimous correct PathMNIST samples
-    pathmnist_correct_images = []
-    pathmnist_correct_labels = []
-    for idx in unanimous_correct_idx:
         img, label = pathmnist_test_dataset[idx]
         # Convert tensor back to numpy for consistency with MIDOG format
         if isinstance(img, torch.Tensor):
@@ -506,16 +413,16 @@ def load_midog_for_new_class_shift(transform, transform_tta, models, device,
         if isinstance(label, np.ndarray):
             label = label.flatten()[0] if label.size > 0 else label
         
-        pathmnist_correct_images.append(img_np)
-        pathmnist_correct_labels.append(label)
+        pathmnist_all_images.append(img_np)
+        pathmnist_all_labels.append(label)
     
-    pathmnist_correct_images = np.array(pathmnist_correct_images)  # (N_correct, 224, 224, 3)
-    pathmnist_correct_labels = np.array(pathmnist_correct_labels).flatten()  # Ensure 1D array
+    pathmnist_all_images = np.array(pathmnist_all_images)  # (N_pathmnist, 224, 224, 3)
+    pathmnist_all_labels = np.array(pathmnist_all_labels).flatten()  # Ensure 1D array
     
     # Create artificial test set
-    # Success samples: unanimous correct predictions from PathMNIST (in-distribution)
-    success_images = pathmnist_correct_images
-    success_original_labels = pathmnist_correct_labels  # Keep original PathMNIST labels
+    # In-distribution samples: ALL PathMNIST test samples
+    success_images = pathmnist_all_images
+    success_original_labels = pathmnist_all_labels  # Keep original PathMNIST labels
     
     # Failure samples: all MIDOG patches (out-of-distribution)
     failure_images = midog_images
@@ -525,15 +432,16 @@ def load_midog_for_new_class_shift(transform, transform_tta, models, device,
     artificial_images = np.concatenate([success_images, failure_images], axis=0)
     original_labels = np.concatenate([success_original_labels, failure_original_labels], axis=0)
     
-    # Binary ground truth for failure detection: 0 = success (PathMNIST), 1 = failure (MIDOG/OOD)
+    # Binary ground truth: 0 = known class (PathMNIST), 1 = OOD (MIDOG)
     binary_gt = np.concatenate([
-        np.zeros(len(success_images), dtype=np.int64),  # PathMNIST = not failures
-        np.ones(len(failure_images), dtype=np.int64)    # MIDOG = failures (OOD)
+        np.zeros(len(success_images), dtype=np.int64),  # PathMNIST = known class
+        np.ones(len(failure_images), dtype=np.int64)    # MIDOG = OOD
     ], axis=0)
     
-    print(f" Artificial test set: {len(success_images)} success (PathMNIST) + {len(failure_images)} failures (MIDOG) "
+    print(f" Artificial test set: {len(success_images)} PathMNIST (known) + {len(failure_images)} MIDOG (OOD) "
           f"= {len(artificial_images)} total")
-    print(f" Failure rate: {100*len(failure_images)/len(artificial_images):.1f}%")
+    print(f" OOD rate: {100*len(failure_images)/len(artificial_images):.1f}%")
+    print(f" (success/failure per method computed dynamically from predictions)")
     
     # Create custom dataset class for RGB images
     class RGBImageDataset(Dataset):
@@ -563,7 +471,7 @@ def load_midog_for_new_class_shift(transform, transform_tta, models, device,
     
     # Create datasets with original labels for model evaluation, binary_gt stored as attribute
     test_dataset = RGBImageDataset(artificial_images, original_labels, transform=transform)
-    test_dataset.binary_gt = binary_gt  # For failure detection metrics
+    test_dataset.binary_gt = binary_gt  # 0=known class (PathMNIST), 1=OOD (MIDOG)
     test_loader = DataLoader(
         test_dataset, batch_size=batch_size, shuffle=False, num_workers=4
     )
