@@ -407,15 +407,16 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                 per_fold_incorrect_idx_calib.append(fold_incorrect_calib)
         
         # For new class shift: always recompute per-fold indices dynamically from predictions
+        # incorrect_idx = OOD only; correct_idx = per-fold correct predictions on known-class
         if new_class_shift and y_true_original is not None:
             _known_mask = y_true_original != -1
+            _ood_idx = np.where(~_known_mask)[0]  # OOD only — fixed for all folds and methods
             per_fold_correct_idx = []
             per_fold_incorrect_idx = []
             for fold_idx in range(per_fold_predictions.shape[0]):
                 _fc = np.where((per_fold_predictions[fold_idx] == y_true_original) & _known_mask)[0]
-                _fi = np.where(~((per_fold_predictions[fold_idx] == y_true_original) & _known_mask))[0]
                 per_fold_correct_idx.append(_fc)
-                per_fold_incorrect_idx.append(_fi)
+                per_fold_incorrect_idx.append(_ood_idx)  # OOD only
         
         # Transpose to [K, N, C] format for per-fold evaluation
         indiv_scores = np.transpose(indiv_scores, (1, 0, 2))  # [K, N, C]
@@ -428,8 +429,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         y_pred = np.argmax(y_scores, axis=1)
         y_pred_calib = np.argmax(y_scores_calib, axis=1)
         
-        # For new class shift: ensemble correct = intersection across all folds
-        # (correct in every fold), matching the stochastic-method convention.
+        # For new class shift: ensemble correct = fold intersection; incorrect = OOD only
         if new_class_shift and y_true_original is not None:
             _known_mask = y_true_original != -1
             _all_correct = _known_mask.copy()
@@ -438,7 +438,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                 _fold_mask[_fc] = True
                 _all_correct &= _fold_mask
             correct_idx = np.where(_all_correct)[0]
-            incorrect_idx = np.where(~_all_correct)[0]
+            incorrect_idx = np.where(~_known_mask)[0]  # OOD only
         
         # Print summary
         if new_class_shift:
@@ -471,7 +471,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             known_mask = y_true_original != -1
             correct_mask = (y_pred == y_true_original) & known_mask
             correct_idx = np.where(correct_mask)[0]
-            incorrect_idx = np.where(~correct_mask)[0]
+            incorrect_idx = np.where(~known_mask)[0]  # OOD only
         
         # Calibration set
         y_true_calib, y_scores_calib, y_pred_calib, correct_idx_calib, incorrect_idx_calib, indiv_scores_calib_raw, logits_calib = \
@@ -533,11 +533,11 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             # Test set
             fold_preds = np.argmax(indiv_scores[fold_idx], axis=1)  # [N]
             
-            # For new class shift: dynamic per-fold success from actual fold predictions
+            # For new class shift: per-fold correct on known-class; incorrect = OOD only
             if new_class_shift and y_true_original is not None:
                 _known_mask = y_true_original != -1
                 fold_correct = np.where((fold_preds == y_true_original) & _known_mask)[0]
-                fold_incorrect = np.where(~((fold_preds == y_true_original) & _known_mask))[0]
+                fold_incorrect = np.where(~_known_mask)[0]  # OOD only
             else:
                 fold_correct = np.where(fold_preds == y_true)[0]
                 fold_incorrect = np.where(fold_preds != y_true)[0]
@@ -554,7 +554,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             
             print(f" Fold {fold_idx}: {len(fold_correct)} correct, {len(fold_incorrect)} incorrect (test)")
         
-        # For new class shift: refine ensemble correct_idx to fold intersection
+        # For new class shift: ensemble correct = fold intersection; incorrect = OOD only
         if new_class_shift and y_true_original is not None:
             _known_mask = y_true_original != -1
             _all_correct = _known_mask.copy()
@@ -563,9 +563,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                 _fold_mask[_fc] = True
                 _all_correct &= _fold_mask
             correct_idx = np.where(_all_correct)[0]
-            incorrect_idx = np.where(~_all_correct)[0]
-            print(f" Dynamic ensemble (fold intersection): {len(correct_idx)} successes, "
-                  f"{len(incorrect_idx)} failures — failure rate: {100*len(incorrect_idx)/len(y_true):.1f}%")
+            incorrect_idx = np.where(~_known_mask)[0]  # OOD only
+            print(f" Ensemble (fold intersection): {len(correct_idx)} correct, "
+                  f"{len(incorrect_idx)} OOD — OOD rate: {100*len(incorrect_idx)/len(y_true):.1f}%")
         
         # Compute per-fold predictions [M, N] for caching
         per_fold_predictions = np.argmax(indiv_scores, axis=2)  # [K, N, C] → [K, N]

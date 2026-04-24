@@ -1904,6 +1904,8 @@ class FailureDetector:
         M = per_fold_mean_preds.shape[0]
         known_mask = y_true_original != -1  # True = known-class sample
 
+        ood_idx = np.where(~known_mask)[0]  # OOD samples — always incorrect, for all methods
+
         per_fold_correct_idx = []
         per_fold_incorrect_idx = []
         all_folds_correct = known_mask.copy()
@@ -1911,11 +1913,11 @@ class FailureDetector:
         for k in range(M):
             fold_correct_mask = (per_fold_mean_preds[k] == y_true_original) & known_mask
             per_fold_correct_idx.append(np.where(fold_correct_mask)[0])
-            per_fold_incorrect_idx.append(np.where(~fold_correct_mask)[0])
+            per_fold_incorrect_idx.append(ood_idx)  # OOD only — not contaminated by hard known-class misclassifications
             all_folds_correct &= fold_correct_mask
 
         ensemble_correct_idx = np.where(all_folds_correct)[0]
-        ensemble_incorrect_idx = np.where(~all_folds_correct)[0]
+        ensemble_incorrect_idx = ood_idx  # OOD only
         return per_fold_correct_idx, per_fold_incorrect_idx, ensemble_correct_idx, ensemble_incorrect_idx
 
     def _compute_metrics(

@@ -246,7 +246,23 @@ def compute_all_metrics(uncertainties, predictions, labels, correct_idx=None, in
         errors = (predictions != labels)
         correct_idx = np.where(~errors)[0]
         incorrect_idx = np.where(errors)[0]
-    
+
+    # Filter to only labeled samples when excluded samples exist (e.g., new_class_shift
+    # "hard" known-class samples that are neither correct nor OOD). Without this,
+    # excluded samples get label=0 in AUROC, degrading the score.
+    correct_idx_arr = np.asarray(correct_idx, dtype=int)
+    incorrect_idx_arr = np.asarray(incorrect_idx, dtype=int)
+    n_relevant = len(correct_idx_arr) + len(incorrect_idx_arr)
+    if n_relevant < len(uncertainties):
+        relevant_idx = np.concatenate([correct_idx_arr, incorrect_idx_arr])
+        uncertainties = uncertainties[relevant_idx]
+        if predictions is not None:
+            predictions = predictions[relevant_idx]
+        if labels is not None:
+            labels = labels[relevant_idx]
+        correct_idx = np.arange(len(correct_idx_arr))
+        incorrect_idx = np.arange(len(correct_idx_arr), n_relevant)
+
     # AUROC_f (for failure prediction)
     if len(incorrect_idx) > 0 and len(correct_idx) > 0:
         auroc_f = compute_auroc(uncertainties, correct_idx, incorrect_idx)

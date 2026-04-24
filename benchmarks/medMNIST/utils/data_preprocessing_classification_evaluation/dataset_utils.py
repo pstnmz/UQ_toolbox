@@ -232,20 +232,25 @@ def load_amos_for_new_class_shift(transform, transform_tta, models=None, device=
     Load AMOS-2022 dataset for new class shift evaluation.
     Creates artificial test set with:
     - New classes (unmapped organs): All samples (these are failures by definition)
-    - Known classes (mapped organs): ALL samples regardless of model predictions
-    
-    Success/failure labels for each method are computed dynamically from that method's
-    own predictions (per-fold for stochastic methods, ensemble mean for baseline).
-    binary_gt encodes class membership only: 0 = known class, 1 = new/OOD class.
-    
+    - Known classes (mapped organs): Only samples predicted correctly by ALL folds
+      (fold-intersection filter). This ensures the "correct" group is unambiguously
+      high-confidence, so that single-prediction methods (MSR, MLS, KNN-Raw) face a
+      clean discrimination task (correct known-class vs OOD) matching the stochastic
+      methods' unanimous-agreement baseline.
+
+    binary_gt encodes class membership: 0 = known class (fold-intersection correct),
+    1 = new/OOD class. For stochastic methods success/failure is further refined
+    dynamically via _compute_new_class_shift_indices.
+
     Args:
         transform: Transform for normalized data
         transform_tta: Transform for unnormalized data (TTA)
-        models: Unused (kept for backward compatibility)
-        device: Unused (kept for backward compatibility)
+        models: List of fold models used to filter known-class samples to
+                fold-intersection-correct ones (required for filtering)
+        device: Torch device for model inference
         batch_size: Batch size for DataLoader
         workspace_root: Path to workspace root (optional, auto-detected if None)
-    
+
     Returns:
         tuple: (test_dataset, test_loader, test_dataset_tta)
             binary_gt attribute: 0 = known class, 1 = new class (OOD)
@@ -300,30 +305,34 @@ def load_amos_for_new_class_shift(transform, transform_tta, models=None, device=
     
     print(f" Known classes (mapped): {len(known_class_indices)} samples")
     print(f" New classes (unmapped): {len(new_class_indices)} samples")
-    
-    # Use ALL known-class samples (success/failure determined dynamically per method)
+
     known_labels = np.array(known_class_labels_organamnist)
-    correct_images = amos_images[known_class_indices]  # All known-class images
-    correct_original_labels = known_labels  # All known-class labels
-    
+
+    # Include ALL known-class samples. Per-method correct_idx is computed dynamically in the
+    # run script: per-fold correct for fold-level methods, fold-intersection for ensemble methods.
+    # incorrect_idx is ALWAYS OOD-only (new-class samples), never contaminated by hard known-class
+    # misclassifications.
+    correct_images = amos_images[known_class_indices]
+    correct_original_labels = known_labels
+
     # Failure samples: all new class samples
     failure_images = amos_images[new_class_indices]
     failure_original_labels = np.full(len(failure_images), -1, dtype=np.int64)  # -1 = new class (no valid label)
-    
+
     # Combine
     artificial_images = np.concatenate([correct_images, failure_images], axis=0)
     original_labels = np.concatenate([correct_original_labels, failure_original_labels], axis=0)
-    
+
     # Binary ground truth for failure detection: 0 = correct (known class), 1 = failure (new class)
     binary_gt = np.concatenate([
         np.zeros(len(correct_images), dtype=np.int64),  # Known classes = not failures
         np.ones(len(failure_images), dtype=np.int64)    # New classes = failures
     ], axis=0)
-    
-    print(f" Artificial test set: {len(correct_images)} known class + {len(failure_images)} OOD "
+
+    print(f" Artificial test set: {len(correct_images)} known class (all) + {len(failure_images)} OOD "
           f"= {len(artificial_images)} total")
     print(f" OOD rate: {100*len(failure_images)/len(artificial_images):.1f}%")
-    print(f" (success/failure per method computed dynamically from predictions)")
+    print(f" (correct_idx computed dynamically per method; incorrect_idx = OOD only)")
     
     # Create datasets with original labels for model evaluation, binary_gt stored as attribute
     test_dataset = AMOSDataset(artificial_images, original_labels, transform=transform)
@@ -344,21 +353,23 @@ def load_midog_for_new_class_shift(transform, transform_tta, models=None, device
     Load MIDOG++ canine patches dataset for new class shift evaluation.
     Creates artificial test set with:
     - New domain (MIDOG++ canine tumors): All patches (OOD, always failures)
-    - Known domain (PathMNIST): ALL test samples regardless of model predictions
-    
-    Success/failure labels for each method are computed dynamically from that method's
-    own predictions (per-fold for stochastic methods, ensemble mean for baseline).
-    binary_gt encodes domain membership only: 0 = PathMNIST (known), 1 = MIDOG (OOD).
-    
+    - Known domain (PathMNIST): Only samples predicted correctly by ALL folds
+      (fold-intersection filter), matching the AMOS new_class_shift convention.
+
+    binary_gt encodes domain membership: 0 = PathMNIST (fold-intersection correct),
+    1 = MIDOG (OOD). For stochastic methods success/failure is further refined
+    dynamically via _compute_new_class_shift_indices.
+
     Args:
         transform: Transform for normalized data
         transform_tta: Transform for unnormalized data (TTA)
-        models: Unused (kept for backward compatibility)
-        device: Unused (kept for backward compatibility)
-        pathmnist_test_dataset: PathMNIST test dataset (pre-loaded)
+        models: List of fold models used to filter PathMNIST samples to
+                fold-intersection-correct ones (required for filtering)
+        device: Torch device for model inference
+        pathmnist_test_dataset: PathMNIST test dataset (pre-loaded, with transforms)
         batch_size: Batch size for DataLoader
         workspace_root: Path to workspace root (optional, auto-detected if None)
-    
+
     Returns:
         tuple: (test_dataset, test_loader, test_dataset_tta)
             binary_gt attribute: 0 = PathMNIST (known class), 1 = MIDOG (OOD)
@@ -392,11 +403,8 @@ def load_midog_for_new_class_shift(transform, transform_tta, models=None, device
     
     print(f" MIDOG++ patches: {len(midog_images)} samples (canine tumors - OOD for PathMNIST)")
     
-    # Use ALL PathMNIST test samples (success/failure determined dynamically per method)
-    print(" Using PathMNIST test set for in-distribution samples...")
-    print(f" PathMNIST test: {len(pathmnist_test_dataset)} samples (all included)")
-    
     # Extract all PathMNIST samples
+    print(" Extracting PathMNIST test samples...")
     pathmnist_all_images = []
     pathmnist_all_labels = []
     for idx in range(len(pathmnist_test_dataset)):
@@ -418,11 +426,13 @@ def load_midog_for_new_class_shift(transform, transform_tta, models=None, device
     
     pathmnist_all_images = np.array(pathmnist_all_images)  # (N_pathmnist, 224, 224, 3)
     pathmnist_all_labels = np.array(pathmnist_all_labels).flatten()  # Ensure 1D array
-    
-    # Create artificial test set
-    # In-distribution samples: ALL PathMNIST test samples
+
+    # Include ALL PathMNIST test samples. Per-method correct_idx is computed dynamically in
+    # the run script: per-fold correct for fold-level methods, fold-intersection for ensemble.
+    # incorrect_idx is ALWAYS OOD-only (MIDOG patches).
     success_images = pathmnist_all_images
-    success_original_labels = pathmnist_all_labels  # Keep original PathMNIST labels
+    success_original_labels = pathmnist_all_labels
+    print(f" PathMNIST test: {len(success_images)} samples (all included)")
     
     # Failure samples: all MIDOG patches (out-of-distribution)
     failure_images = midog_images
@@ -438,10 +448,10 @@ def load_midog_for_new_class_shift(transform, transform_tta, models=None, device
         np.ones(len(failure_images), dtype=np.int64)    # MIDOG = OOD
     ], axis=0)
     
-    print(f" Artificial test set: {len(success_images)} PathMNIST (known) + {len(failure_images)} MIDOG (OOD) "
+    print(f" Artificial test set: {len(success_images)} PathMNIST (all) + {len(failure_images)} MIDOG (OOD) "
           f"= {len(artificial_images)} total")
     print(f" OOD rate: {100*len(failure_images)/len(artificial_images):.1f}%")
-    print(f" (success/failure per method computed dynamically from predictions)")
+    print(f" (correct_idx computed dynamically per method; incorrect_idx = OOD only)")
     
     # Create custom dataset class for RGB images
     class RGBImageDataset(Dataset):
