@@ -271,7 +271,7 @@ def create_plot(index_data, output_path: Path, title: str):
 		txt = ax.text(
 			xi,
 			yi,
-			"",
+			"\u26A1",
 			ha="center",
 			va="center",
 			fontsize=12,
@@ -353,7 +353,7 @@ def create_plot(index_data, output_path: Path, title: str):
 		[],
 		[],
 		linestyle="None",
-		marker="$$",
+		marker='$\u26A1$',
 		markersize=12,
 		alpha=0.9,
 		markerfacecolor=lightning_color,

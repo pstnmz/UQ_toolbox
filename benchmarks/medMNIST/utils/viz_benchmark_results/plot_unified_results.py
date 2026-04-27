@@ -11,6 +11,7 @@ import json
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.transforms as mtransforms
 from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
@@ -524,26 +525,42 @@ def create_combined_radar_histogram_figure_id_cs(results_auroc, results_augrc, a
         # Format x-axes based on metric (horizontal bars now)
         if metric == 'augrc':
             # AUGRC: Raw AUGRC values (0-0.5, lower is better)
-            ax.set_xlim(0.35, 0.65)
+            # Symmetric xlim around 0.5 (0%). Ticks every 2.5% from 2.5% to 17.5%,
+            # boundary ticks (2.5% and 17.5%) unlabeled so 15% is not at the edge.
+            ax.set_xlim(0.325, 0.675)
             ax.set_xlabel('ResNet18', fontsize=12, fontweight='bold', x=0.28)
             
-            resnet_ticks = [0.5, 0.475, 0.45, 0.425, 0.4, 0.375, 0.35]
-            resnet_labels = ['0%', '', '5%', '', '10%', '', '15%']
+            resnet_ticks = [0.5, 0.475, 0.45, 0.425, 0.4, 0.375, 0.35, 0.325]
+            resnet_labels = ['0%', '', '5%', '', '10%', '', '15%', '']
             ax.set_xticks(resnet_ticks)
             ax.set_xticklabels(resnet_labels, fontsize=9)
             ax.tick_params(axis='x', which='both', length=0)  # Remove tick marks
             
             # Format top x-axis (ViT - reversed so bars meet in center)
-            ax2.set_xlim(0.65, 0.35)  # Reversed
+            ax2.set_xlim(0.675, 0.325)  # Reversed, symmetric around 0.5
             ax2.set_xlabel('ViT', fontsize=12, fontweight='bold', x=0.75)
             
-            vit_ticks = [0.35, 0.375, 0.4, 0.425, 0.45, 0.475,0.5]
-            vit_labels = ['15%', '', '10%', '', '5%', '', '0%']
+            vit_ticks = [0.325, 0.35, 0.375, 0.4, 0.425, 0.45, 0.475, 0.5]
+            vit_labels = ['', '15%', '', '10%', '', '5%', '', '0%']
             ax2.set_xticks(vit_ticks)
             ax2.set_xticklabels(vit_labels, fontsize=9)
             ax2.tick_params(axis='x', which='both', top=True, labeltop=True, pad=6, length=0)  # Remove tick marks
             
-            # Separator line at 0.2
+            # Nudge '15%' outward by 3pt to avoid overlap with '10%'
+            _nudge_r = mtransforms.ScaledTranslation(-3/72., 0, fig.dpi_scale_trans)
+            for tick in ax.xaxis.get_major_ticks():
+                if abs(tick.get_loc() - 0.35) < 0.001:
+                    tick.label1.set_transform(tick.label1.get_transform() + _nudge_r)
+            # For twiny top axis: nudge label2 (top label) rightward (outward on reversed axis)
+            _nudge_v = mtransforms.ScaledTranslation(3/72., 0, fig.dpi_scale_trans)
+            fig.canvas.draw()  # Force tick label Text objects to be finalised
+            for tick in ax2.xaxis.get_major_ticks():
+                if abs(tick.get_loc() - 0.35) < 0.001:
+                    for lbl in [tick.label1, tick.label2]:
+                        lbl.set_clip_on(False)
+                        lbl.set_transform(lbl.get_transform() + _nudge_v)
+            
+            # Separator line at 0% (physical center where both axes' bars meet)
             separator_x = 0.5
         else:
             # AUROC_f: Raw AUROC_f values (0.4-1.0)
@@ -605,11 +622,11 @@ def create_combined_radar_histogram_figure_id_cs(results_auroc, results_augrc, a
         
         # Draw custom spine segment for bottom axis only (ResNet18)
         if metric == 'augrc':
-            # AUGRC: spine from 0.0 to 0.5
-            ax.plot([0.35, 0.5], [0, 0], 
+            # AUGRC: spine from 0% to 17.5%
+            ax.plot([0.325, 0.5], [0, 0], 
                     color='black', linewidth=0.8, clip_on=False, zorder=100, 
                     transform=ax.get_xaxis_transform())
-            ax2.plot([0.35, 0.5], [1, 1], 
+            ax2.plot([0.325, 0.5], [1, 1], 
                     color='black', linewidth=0.8, clip_on=False, zorder=100, 
                     transform=ax2.get_xaxis_transform())
         else:

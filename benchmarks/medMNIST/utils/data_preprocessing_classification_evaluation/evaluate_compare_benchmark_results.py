@@ -190,6 +190,65 @@ def cross_dataset_pair_diffs(
 	return out
 
 
+def arbitrary_pair_diffs(
+	records: List[RunRecord],
+	shift_type_a: str,
+	dataset_a: str,
+	shift_type_b: str,
+	dataset_b: str,
+	metric_name: str,
+) -> Dict[str, List[float]]:
+	"""Compute (metric_a - metric_b) per backbone, matched by setup."""
+	by_exact: Dict[Tuple[str, str, str, str], RunRecord] = {}
+	for rec in records:
+		key = (rec.shift_type, rec.dataset, rec.setup, rec.backbone)
+		by_exact[key] = rec
+
+	out: Dict[str, List[float]] = {"resnet18": [], "vit_b_16": []}
+	for backbone in ["resnet18", "vit_b_16"]:
+		setups = {r.setup for r in records if r.backbone == backbone}
+		for setup in sorted(setups):
+			key_a = (shift_type_a, dataset_a, setup, backbone)
+			key_b = (shift_type_b, dataset_b, setup, backbone)
+			if key_a not in by_exact or key_b not in by_exact:
+				continue
+			rec_a = by_exact[key_a]
+			rec_b = by_exact[key_b]
+			val_a = rec_a.best_auroc if metric_name == "auroc" else rec_a.best_augrc
+			val_b = rec_b.best_auroc if metric_name == "auroc" else rec_b.best_augrc
+			out[backbone].append(val_a - val_b)
+	return out
+
+
+def mean_by_backbone(
+	records: List[RunRecord],
+	shift_type: str,
+	dataset: str,
+	metric_name: str,
+) -> Dict[str, List[float]]:
+	"""Collect per-backbone metric values for a specific (shift_type, dataset)."""
+	out: Dict[str, List[float]] = {"resnet18": [], "vit_b_16": []}
+	for rec in records:
+		if rec.shift_type == shift_type and rec.dataset == dataset:
+			val = rec.best_auroc if metric_name == "auroc" else rec.best_augrc
+			out[rec.backbone].append(val)
+	return out
+
+
+def format_abs(values: List[float]) -> str:
+	if not values:
+		return "n=0"
+	mu = mean(values)
+	sd = pstdev(values) if len(values) > 1 else 0.0
+	return f"{mu:.6f} +/- {sd:.6f} (n={len(values)})"
+
+
+def print_absolute_table(title: str, values: Dict[str, List[float]]) -> None:
+	print(f"\n{title}")
+	for backbone in ["resnet18", "vit_b_16"]:
+		print(f"- {backbone}: {format_abs(values.get(backbone, []))}")
+
+
 def print_shift_table(title: str, diffs: Dict[str, List[float]]) -> None:
 	print(f"\n{title}")
 	for shift_type in ["ID", "corruption shifts", "population shifts", "new class shifts"]:
@@ -287,6 +346,62 @@ def main() -> None:
 	print_backbone_table(
 		"organamnist (ID) - amos2022 (population shifts) AUGRC:",
 		organ_augrc,
+	)
+
+	# ── AMOS2022: OOD detection (new class shifts) vs failure detection (population shifts) ──
+	print("\n" + "=" * 70)
+	print("AMOS2022 — OOD detection vs failure detection")
+	print("=" * 70)
+
+	amos_ncs_auroc = mean_by_backbone(records, "new class shifts", "amos2022", "auroc")
+	print_absolute_table(
+		"amos2022 new class shifts best-CSF AUROC-F (OOD detection):",
+		amos_ncs_auroc,
+	)
+
+	amos_ps_auroc = mean_by_backbone(records, "population shifts", "amos2022", "auroc")
+	print_absolute_table(
+		"amos2022 population shifts best-CSF AUROC-F (failure detection on known labels):",
+		amos_ps_auroc,
+	)
+
+	amos_ncs_vs_ps = arbitrary_pair_diffs(
+		records,
+		shift_type_a="new class shifts", dataset_a="amos2022",
+		shift_type_b="population shifts", dataset_b="amos2022",
+		metric_name="auroc",
+	)
+	print_backbone_table(
+		"amos2022 new class shifts − population shifts AUROC-F (OOD − failure detection):",
+		amos_ncs_vs_ps,
+	)
+
+	# ── MIDOG (OOD) vs PathMNIST ID (failure detection) ──
+	print("\n" + "=" * 70)
+	print("MIDOG (OOD) vs PathMNIST in-distribution (failure detection)")
+	print("=" * 70)
+
+	midog_ncs_auroc = mean_by_backbone(records, "new class shifts", "midog", "auroc")
+	print_absolute_table(
+		"midog new class shifts best-CSF AUROC-F (OOD detection):",
+		midog_ncs_auroc,
+	)
+
+	pathmnist_id_auroc = mean_by_backbone(records, "ID", "pathmnist", "auroc")
+	print_absolute_table(
+		"pathmnist ID best-CSF AUROC-F (failure detection):",
+		pathmnist_id_auroc,
+	)
+
+	midog_vs_pathmnist = arbitrary_pair_diffs(
+		records,
+		shift_type_a="new class shifts", dataset_a="midog",
+		shift_type_b="ID",              dataset_b="pathmnist",
+		metric_name="auroc",
+	)
+	print_backbone_table(
+		"midog (new class shifts) − pathmnist (ID) AUROC-F (OOD − failure detection):",
+		midog_vs_pathmnist,
 	)
 
 

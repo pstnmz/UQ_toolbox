@@ -395,8 +395,8 @@ def create_scatter_plot(data, output_dir):
                       label='Mean Agg', alpha=0.8, edgecolors='darkred', linewidths=0.5)
             continue
         elif method == 'Mean Agg + Ens':
-            # Lightning bolt for Mean Aggregation + Ensemble
-            ax.scatter(x, y, s=150, marker='$$', c='orange',
+            # Diamond for Mean Aggregation + Ensemble
+            ax.scatter(x, y, s=150, marker='$\u26A1$', c="#f4c97a",
                       label='Mean Agg+Ens', alpha=0.8, edgecolors='black', linewidths=0.3)
             continue
         elif method == 'DE':
@@ -515,8 +515,8 @@ def create_scatter_by_shift(data, output_dir):
                           label='Mean Agg', alpha=0.8, edgecolors='darkred', linewidths=0.5)
                 continue
             elif method == 'Mean Agg + Ens':
-                # Lightning bolt for Mean Aggregation + Ensemble
-                ax.scatter(x, y, s=150, marker='$$', c='orange',
+                # Diamond for Mean Aggregation + Ensemble
+                ax.scatter(x, y, s=150, marker='$\u26A1$', c="#f4c97a",
                           label='Mean Agg+Ens', alpha=0.8, edgecolors='black', linewidths=0.3)
                 continue
             elif method == 'DE':
@@ -646,6 +646,8 @@ def create_per_method_correlation_plots(data, output_dir):
                 row = shift_idx * n_rows_per_shift + row_in_shift
                 axes[row, col] = fig.add_subplot(inner_gs[row_in_shift, col])
     
+    all_corr_values = []  # collect r across all 30 subplots for global mean
+
     for shift_idx, (shift_type, shift_title) in enumerate(shift_info):
         shift_data = [d for d in all_data if d['shift'] == shift_type]
         
@@ -673,7 +675,7 @@ def create_per_method_correlation_plots(data, output_dir):
                 ax.scatter(x, y, s=150, marker='*', c='red',
                           alpha=0.7, edgecolors='darkred', linewidths=0.5)
             elif method == 'Mean Agg + Ens':
-                ax.scatter(x, y, s=150, marker='$$', c='orange',
+                ax.scatter(x, y, s=150, marker='$\u26A1$', c="#f4c97a",
                           alpha=0.7, edgecolors='black', linewidths=0.5)
             else:
                 ax.scatter(x, y, c=[method_colors[method]], marker='o', s=50,
@@ -682,6 +684,8 @@ def create_per_method_correlation_plots(data, output_dir):
             # Compute and display correlation
             if len(x) > 1:
                 corr = np.corrcoef(x, y)[0, 1]
+                if not np.isnan(corr):
+                    all_corr_values.append(corr)
                 
                 # Add trend line
                 z = np.polyfit(x, y, 1)
@@ -737,6 +741,13 @@ def create_per_method_correlation_plots(data, output_dir):
     plt.tight_layout()
     # Note: hspace is already set in GridSpec
     
+    # Print global mean correlation over all subplots (10 CSFs × 3 shifts)
+    if all_corr_values:
+        mean_r = np.mean(all_corr_values)
+        std_r = np.std(all_corr_values)
+        print(f"\nMean Pearson r over {len(all_corr_values)} subplots (10 CSFs × 3 shifts): "
+              f"{mean_r:.4f} ± {std_r:.4f}")
+
     # Save merged figure
     output_path = output_dir / 'per_method_correlation_all_shifts.png'
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -941,59 +952,79 @@ def create_sample_level_pairplots(workspace_root, output_dir):
                 # Load NPZ data
                 try:
                     npz_data = np.load(npz_file, allow_pickle=True)
-                    
-                    # Get cache file for y_true
-                    cache_dir = uq_shift_dir.parent.parent / 'cache'
-                    # For new_class_shifts, keep 'shift' singular (not 'new_class')
-                    if shift_dir_name == 'new_class_shifts':
-                        shift_name_short = 'new_class_shift'
-                    else:
-                        shift_name_short = shift_dir_name.replace('_shifts', '')
 
-                    cache_file = find_cache_file(cache_dir, dataset, model, config, shift_name_short)
-                    
-                    if not cache_file or not cache_file.exists():
-                        continue
-                    
-                    cache_data = load_cache_data(cache_file)
-                    if cache_data is None or cache_data['per_fold_predictions'] is None:
-                        continue
-                    
-                    n_folds = len(cache_data['per_fold_predictions'])
-                    n_samples = len(cache_data['y_true'])
-                    y_true = cache_data['y_true']
-                    
-                    # For new_class_shift: use binary_gt for correctness labels
-                    binary_gt = cache_data.get('binary_gt', None)
-                    
-                    # Process each method in NPZ file
-                    for method_name in sorted(npz_data.keys()):
-                        # Keep _per_fold variants and Mean_Aggregation (which is per-fold but without suffix)
-                        if npz_data[method_name].shape[0] != 5:
+                    # For new_class_shifts, correctness labels are embedded in the NPZ itself
+                    # (baseline_per_fold_correct_idx / baseline_per_fold_incorrect_idx).
+                    # Other shifts need a separate cache file for y_true / per_fold_predictions.
+                    if shift_dir_name == 'new_class_shifts':
+                        # Reconstruct per-fold correctness from embedded index arrays
+                        per_fold_correct_idx = npz_data['baseline_per_fold_correct_idx']  # object array (5,)
+                        n_folds = len(per_fold_correct_idx)
+                        # n_samples per fold inferred from any _per_fold score array
+                        ref_key = next(k for k in npz_data.keys() if k.endswith('_per_fold') and npz_data[k].ndim == 2)
+                        n_samples = npz_data[ref_key].shape[1]
+
+                        # Build per-fold boolean correct arrays
+                        fold_correct_masks = []
+                        for fi in range(n_folds):
+                            mask = np.zeros(n_samples, dtype=bool)
+                            mask[per_fold_correct_idx[fi]] = True
+                            fold_correct_masks.append(mask)
+
+                        # Process each method
+                        for method_name in sorted(npz_data.keys()):
+                            if npz_data[method_name].ndim != 2 or npz_data[method_name].shape[0] != n_folds:
+                                continue
+                            base_method_name = method_name.replace('_per_fold', '')
+                            display_name = name_mapping.get(base_method_name, base_method_name)
+                            scores = npz_data[method_name]
+
+                            for fold_idx in range(n_folds):
+                                fold_scores = scores[fold_idx]
+                                correct_mask = fold_correct_masks[fold_idx]
+                                for sample_idx in range(min(len(fold_scores), n_samples)):
+                                    key = (dataset, model, config, fold_idx, sample_idx)
+                                    sample_scores[key][display_name] = fold_scores[sample_idx]
+                                    if 'correct' not in sample_scores[key]:
+                                        sample_scores[key]['correct'] = bool(correct_mask[sample_idx])
+
+                    else:
+                        # Standard path: load y_true / per_fold_predictions from cache file
+                        cache_dir = uq_shift_dir.parent.parent / 'cache'
+                        shift_name_short = shift_dir_name.replace('_shifts', '')
+                        cache_file = find_cache_file(cache_dir, dataset, model, config, shift_name_short)
+
+                        if not cache_file or not cache_file.exists():
                             continue
-                        
-                        # Remove _per_fold suffix for display name
-                        base_method_name = method_name.replace('_per_fold', '')
-                        
-                        display_name = name_mapping.get(base_method_name, base_method_name)
-                        
-                        scores = npz_data[method_name]
-    
-                        for fold_idx in range(n_folds):
-                            fold_scores = scores[fold_idx]
-                            y_pred_fold = cache_data['per_fold_predictions'][fold_idx]
-                            # Use minimum length to avoid index errors
-                            n_samples_safe = min(len(fold_scores), len(y_pred_fold), len(y_true))
-                            for sample_idx in range(n_samples_safe):
-                                key = (dataset, model, config, fold_idx, sample_idx)
-                                sample_scores[key][display_name] = fold_scores[sample_idx]
-                                # Add correctness label if not already present
-                                if 'correct' not in sample_scores[key]:
-                                    # For new_class_shift: use binary_gt (0=correct, 1=failure)
-                                    if binary_gt is not None:
-                                        sample_scores[key]['correct'] = (binary_gt[sample_idx] == 0)
-                                    else:
-                                        sample_scores[key]['correct'] = (y_true[sample_idx] == y_pred_fold[sample_idx])
+
+                        cache_data = load_cache_data(cache_file)
+                        if cache_data is None or cache_data['per_fold_predictions'] is None:
+                            continue
+
+                        n_folds = len(cache_data['per_fold_predictions'])
+                        n_samples = len(cache_data['y_true'])
+                        y_true = cache_data['y_true']
+                        binary_gt = cache_data.get('binary_gt', None)
+
+                        for method_name in sorted(npz_data.keys()):
+                            if npz_data[method_name].shape[0] != 5:
+                                continue
+                            base_method_name = method_name.replace('_per_fold', '')
+                            display_name = name_mapping.get(base_method_name, base_method_name)
+                            scores = npz_data[method_name]
+
+                            for fold_idx in range(n_folds):
+                                fold_scores = scores[fold_idx]
+                                y_pred_fold = cache_data['per_fold_predictions'][fold_idx]
+                                n_samples_safe = min(len(fold_scores), len(y_pred_fold), len(y_true))
+                                for sample_idx in range(n_samples_safe):
+                                    key = (dataset, model, config, fold_idx, sample_idx)
+                                    sample_scores[key][display_name] = fold_scores[sample_idx]
+                                    if 'correct' not in sample_scores[key]:
+                                        if binary_gt is not None:
+                                            sample_scores[key]['correct'] = (binary_gt[sample_idx] == 0)
+                                        else:
+                                            sample_scores[key]['correct'] = (y_true[sample_idx] == y_pred_fold[sample_idx])
                 
                 except Exception as e:
                     print(f" Warning: Failed to process {npz_file.name}: {e}")

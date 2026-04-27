@@ -386,6 +386,17 @@ def create_radar_plot_on_axis(ax, model_results, model_name, runs_dir=None, metr
     # Color map for methods
     colors = plt.cm.tab20(np.linspace(0, 1, len(all_methods)))
     
+    # Pre-compute the innermost ring display value for AUGRC ID/CS out-of-bounds clamping.
+    # Out-of-bounds points (AUGRC > 0.3) will be drawn at the innermost ring so the
+    # connecting line is visible (reaching toward the center = worst performance).
+    radar_center_display = None
+    if metric == 'augrc' and shift not in ['population_shift', 'new_class_shift']:
+        _augrc_max_pre = 0.3
+        # 0.25 is the worst tick shown; its transformed value is the innermost ring (y_min)
+        radar_center_display = float(augrc_log_transform(
+            np.array([0.25]), max_display=_augrc_max_pre, scale_factor=50.0
+        )[0])
+    
     # Plot each method (lines only, no fill)
     for method_idx, method_name in enumerate(all_methods):
         values = []
@@ -396,10 +407,25 @@ def create_radar_plot_on_axis(ax, model_results, model_name, runs_dir=None, metr
         # For visualization: apply display transform only for AUGRC with ID/CS shifts
         # This is purely visual - uses ORIGINAL AUGRC values (0-0.5, lower is better)
         values_display = values.copy()
+        out_of_bounds_mask = [False] * len(values)
         if metric == 'augrc' and shift not in ['population_shift', 'new_class_shift']:
             augrc_max_display = 0.3
-            # Transform original AUGRC values for display
-            values_display = augrc_log_transform(values, max_display=augrc_max_display, scale_factor=50.0).tolist()
+            # Mark values beyond the display limit
+            out_of_bounds_mask = [
+                (not np.isnan(v)) and (v > augrc_max_display) for v in values
+            ]
+            # Build display values: out-of-bounds → innermost ring (radar_center_display)
+            # so the connecting line is drawn reaching toward the center
+            values_display = []
+            for v, oob in zip(values, out_of_bounds_mask):
+                if oob:
+                    values_display.append(radar_center_display)
+                elif np.isnan(v):
+                    values_display.append(np.nan)
+                else:
+                    values_display.append(
+                        float(augrc_log_transform(np.array([v]), max_display=augrc_max_display, scale_factor=50.0)[0])
+                    )
         
         # Complete the circle for display
         values_display += values_display[:1]
@@ -418,12 +444,16 @@ def create_radar_plot_on_axis(ax, model_results, model_name, runs_dir=None, metr
         else:
             if method_name == "MSR_calibrated":
                 method_name = "MSR-S"
-            else:
-                method_name = method_name
-            # Plot lines with enhanced styling for better visibility
-            ax.plot(angles, values_display, 'o-', linewidth=1.5, label=method_name, 
-                    color=colors[method_idx], markersize=7, markeredgewidth=1,
-                    markeredgecolor='white', alpha=0.85)
+            # Plot line (always, including clamped out-of-bounds points that go to center)
+            ax.plot(angles, values_display, '-', linewidth=1.5, label=method_name,
+                    color=colors[method_idx], alpha=0.85)
+            # Plot markers only for in-bounds points (skip clamped positions)
+            in_bounds_angles = [a for a, oob in zip(angles[:-1], out_of_bounds_mask) if not oob]
+            in_bounds_values = [v for v, oob in zip(values_display[:-1], out_of_bounds_mask) if not oob]
+            if in_bounds_angles:
+                ax.plot(in_bounds_angles, in_bounds_values, 'o',
+                        color=colors[method_idx], markersize=7, markeredgewidth=1,
+                        markeredgecolor='white', alpha=0.85)
     
     # Set labels - setup names only (increased font size for readability)
     ax.set_xticks(angles[:-1])
@@ -582,6 +612,21 @@ def create_radar_plot_on_axis(ax, model_results, model_name, runs_dir=None, metr
         elif name == 'organamnist' and metric == 'auroc_f':
             label_position_organa = 1.17
             ax.text(custom_angle, label_position_organa, display_name, 
+                    horizontalalignment='center', verticalalignment='center',
+                    size=12, fontweight='bold', transform=ax.transData,
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                            edgecolor='gray', alpha=0.8))
+        elif name == 'organamnist' and metric == 'augrc':
+            label_position_organa = y_max + 2
+            ax.text(custom_angle, label_position_organa, display_name, 
+                    horizontalalignment='center', verticalalignment='center',
+                    size=12, fontweight='bold', transform=ax.transData,
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                            edgecolor='gray', alpha=0.8))
+            
+        elif name == 'dermamnist-e-id' and metric == 'augrc':
+            label_position_derma = y_max + 2.2
+            ax.text(custom_angle, label_position_derma, display_name, 
                     horizontalalignment='center', verticalalignment='center',
                     size=12, fontweight='bold', transform=ax.transData,
                     bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
