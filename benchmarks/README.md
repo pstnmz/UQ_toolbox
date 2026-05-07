@@ -80,6 +80,12 @@ python ToolBox/tests/pre_run_checklist.py
 
 ## 2. Data
 
+> **Quick setup:** Pre-processed external datasets and trained model checkpoints are available on HuggingFace. Run the one-command setup script to skip manual preprocessing and training entirely:
+> ```bash
+> python scripts/setup_from_hub.py
+> ```
+> Datasets: [pstnmz/FailCatcher-datasets](https://huggingface.co/datasets/pstnmz/FailCatcher-datasets) — Models: [pstnmz/FailCatcher-models](https://huggingface.co/pstnmz/FailCatcher-models)
+
 ### 2.1 MedMNIST (automatic download)
 
 All MedMNIST datasets are downloaded automatically by the `medmnist` package when first accessed. No manual steps are required.
@@ -103,6 +109,14 @@ Images are resized to **224×224** for all models. The default download path is 
 ### 2.2 AMOS-2022 (external CT test set)
 
 AMOS-2022 is used as an external test set for OrganaMNIST models. The data directory is **gitignored** (`**/data/`) and must be produced locally.
+
+> **Shortcut:** Download the pre-processed NPZ directly from HuggingFace:
+> ```bash
+> python scripts/setup_from_hub.py --datasets-only --datasets amos22
+> ```
+> This places `amos_external_test_224.npz` in `Benchmarks/medMNIST/data/AMOS_2022/` automatically — no manual preprocessing needed.
+
+**Manual setup (if not using HuggingFace):**
 
 **Step 1 — Download AMOS-2022**
 
@@ -129,6 +143,14 @@ The loading code in `dataset_utils.py::load_amos_dataset()` reads this file. **6
 ### 2.3 MIDOG++ (external histology test set)
 
 MIDOG++ is used as an OOD test set for PathMNIST models in new-class-shift mode. The data directory is **gitignored** and preprocessing is required before benchmarking.
+
+> **Shortcut:** Download the pre-processed NPZ directly from HuggingFace:
+> ```bash
+> python scripts/setup_from_hub.py --datasets-only --datasets midog
+> ```
+> This places `midog_canine_patches.npz` in `Benchmarks/medMNIST/data/MIDOG++/` automatically.
+
+**Manual setup (if not using HuggingFace):**
 
 **Step 1 — Download MIDOG++ images**
 
@@ -158,6 +180,14 @@ This resamples MIDOG++ images to match PathMNIST's physical resolution (0.5 µm/
 
 DermaMNIST-E is an enhanced version of DermaMNIST (Abhishek et al., 2025) with strict lesion-identity splits. The data directory is **gitignored** and requires a custom preprocessed file that is not available from the standard Zenodo release.
 
+> **Shortcut:** Download the pre-processed NPZ directly from HuggingFace:
+> ```bash
+> python scripts/setup_from_hub.py --datasets-only --datasets dermamnist-e
+> ```
+> This places `dermamnist_extended_224_wsitesources.npz` in `Benchmarks/medMNIST/data/ISIC_2018/` automatically.
+
+**Manual setup (if not using HuggingFace):**
+
 **Required file:**
 ```
 Benchmarks/medMNIST/data/ISIC_2018/dermamnist_extended_224_wsitesources.npz
@@ -177,6 +207,12 @@ The file is loaded by `utils/data_preprocessing_classification_evaluation/local_
 ---
 
 ## 3. Training models
+
+> **Shortcut:** All 325 trained checkpoints are available on HuggingFace. Download them instead of re-training:
+> ```bash
+> python scripts/setup_from_hub.py --models-only
+> ```
+> Models (~59 GB) are placed directly in `Benchmarks/medMNIST/models/224*224/`.
 
 Models are trained with 5-fold stratified cross-validation (`n_splits=5, seed=42`). Each fold produces one `.pt` checkpoint. **This seed must never change**, as inference and KNN methods depend on the exact same splits.
 
@@ -390,6 +426,15 @@ The benchmark is designed to be fully reproducible:
 
 ### Reproducing from scratch
 
+**Option A — Download from HuggingFace (recommended):**
+```
+1. pip install -r requirements.txt && pip install -e ToolBox/
+2. python scripts/setup_from_hub.py   # downloads models + external datasets
+3. Generate GPS caches (see section 4.3)
+4. python Benchmarks/medMNIST/launcher_benchmark.py --python <python_path> --gpu 0
+```
+
+**Option B — Train from scratch:**
 ```
 1. pip install -r requirements.txt && pip install -e ToolBox/
 2. [Optional] Preprocess MIDOG++ patches (see section 2.3)
