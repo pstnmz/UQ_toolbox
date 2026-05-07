@@ -12,6 +12,7 @@ AUROC_MEAN_METHODS = [
 	"MLS",
 	"GPS",
 	"KNN_Raw",
+	"TTA",
 	"ZScore_Aggregation_per_fold",
 ]
 

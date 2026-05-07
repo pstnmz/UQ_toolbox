@@ -1,6 +1,8 @@
 # Failure Detection Benchmark in classification — medMNIST
 
-This directory contains the full reproducible benchmarking pipeline for evaluating uncertainty quantification methods on MedMNIST datasets + external test sets. As well as the obtained results. Publication to come soon!
+> **Preprint:** [Steinmetz et al., medRxiv 2026](https://www.medrxiv.org/content/10.64898/2026.05.04.26350496v1) — DOI: 10.64898/2026.05.04.26350496
+
+This directory contains the full reproducible benchmarking pipeline for evaluating uncertainty quantification methods on MedMNIST datasets + external test sets. As well as the obtained results.
 
 ---
 
