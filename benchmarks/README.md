@@ -40,19 +40,19 @@ This directory contains the full reproducible benchmarking pipeline for evaluati
 
 ## Results
 
-<img width="3928" height="3214" alt="id_cs_auroc_f_radars_with_histograms_mean (2)" src="https://github.com/user-attachments/assets/ba4af309-025a-4c7d-9252-6425d6c7a58c" />
+<img width="3928" height="3214" alt="id_cs_auroc_f_radars_with_histograms_mean (3)" src="https://github.com/user-attachments/assets/11499f11-165d-404f-bf2a-680c85c9691d" />
 
 *AUROC-F results across all datasets and training setups (S=Standard, DA=Data Augmentation, DO=Dropout Layers, DADO=DA+DO). Results are shown for two backbones (left: ResNet18, right: ViT) under in-distribution (first row: ID) and corruption-shift (second row: CS) evaluations. Mean radar-value histograms ± standard deviations across backbones and data shifts are displayed in the center.*
 
-<img width="3969" height="3238" alt="id_cs_augrc_radars_with_histograms_mean (1)" src="https://github.com/user-attachments/assets/1fa2dea5-6789-4d42-8e0a-14f7330bf9c2" />
+<img width="3969" height="3238" alt="id_cs_augrc_radars_with_histograms_mean (2)" src="https://github.com/user-attachments/assets/c8967c27-a6cf-4f43-bee9-557f9876ade0" />
 
 *AUGRC results across all datasets and training setups (S=Standard, DA=Data Augmentation, DO=Dropout Layers, DADO=DA+DO). Results are shown for two backbones (left: ResNet18, right: ViT) under in-distribution (top: ID) and corruption-shift (bottom: CS) evaluations. Mean radar-value histograms ± standard deviations across backbones and data shifts are displayed in the center.*
 
-<img width="3947" height="3188" alt="ncs_ps_combined_radars_with_histograms_mean (2)" src="https://github.com/user-attachments/assets/a2af44a0-5b31-418f-a435-b52fe6672011" />
+<img width="3947" height="3188" alt="ncs_ps_combined_radars_with_histograms_mean (3)" src="https://github.com/user-attachments/assets/13f66060-af1c-4fbd-bb25-93f6f24b364c" />
 
 *AUROC-F (top) and AUGRC (bottom) results across all datasets and training setups (S=Standard, DA=Data Augmentation, DO=Dropout Layers). Results are shown for two backbones (left: ResNet18, right: ViT) for population shifts (PS, "amos2022" and "derma-e-external" datasets) and new-class shifts (NCS, "new-class amos2022", "new-class midog++") evaluation. Mean radar-value histograms ± standard deviations across backbones and data shifts are displayed in the center.*
 
-<img width="4901" height="5894" alt="per_method_correlation_all_shifts" src="https://github.com/user-attachments/assets/c26a2ec1-2f5b-4fd1-9cd4-a18b26c6d2f2" />
+<img width="4901" height="5894" alt="per_method_correlation_all_shifts (1)" src="https://github.com/user-attachments/assets/884cb791-cab3-4519-a882-59335ae2b30a" />
 
 *Scoring function AUROC-F correlation with classification balanced accuracy (over all configurations: training setup + backbone + dataset) across failure sources.*
 
