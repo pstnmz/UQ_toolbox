@@ -10,7 +10,7 @@ package_dir = {"UQ_Toolbox": "ToolBox"}
 
 setup(
     name="FailCatcher",
-    version="2.0.0",
+    version="2.0.1",
     description="Post-hoc uncertainty quantification toolkit for PyTorch deep learning models",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
