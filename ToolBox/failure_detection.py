@@ -1613,7 +1613,7 @@ class FailureDetector:
                 knn_method.fit(self.models, train_loaders, self.device)
                 
                 # Step 2: Extract and transform calibration features + store training features
-                from ToolBox.methods.latent import extract_latent_space_and_compute_shap_importance, get_layer_from_model
+                from .methods.latent import extract_latent_space_and_compute_shap_importance, get_layer_from_model
                 
                 calib_features_transformed = []
                 train_features_transformed = []  # Store for grid search

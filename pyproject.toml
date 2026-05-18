@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "FailCatcher"
+version = "2.0.0"
+description = "Post-hoc uncertainty quantification toolkit for PyTorch deep learning models in medical imaging"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "CC BY-NC-SA 4.0"}
+keywords = ["uncertainty quantification", "deep learning", "medical imaging", "failure detection"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: Other/Proprietary License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "numpy>=1.20.0",
+    "scipy>=1.9.0",
+    "pandas>=1.3.0",
+    "scikit-learn>=1.0.0",
+    "matplotlib>=3.4.0",
+    "seaborn>=0.11.0",
+    "shap>=0.40.0",
+    "monai>=0.9.0",
+    "medmnist>=3.0.0",
+    "Pillow>=9.0.0",
+    "tqdm>=4.60.0",
+]
+
+[project.urls]
+Repository = "https://github.com/pstnmz/FailCatcher"
+Preprint = "https://www.medrxiv.org/content/10.64898/2026.05.04.26350496v1"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ToolBox*"]
