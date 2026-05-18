@@ -128,7 +128,7 @@ def compute_aurc(uncertainties, predictions, labels, num_bins=1000, correct_idx=
     coverages = coverages[sorted_idx]
     risks = risks[sorted_idx]
     
-    aurc = np.trapz(risks, coverages)
+    aurc = np.trapezoid(risks, coverages)
     
     # Optimal risk: if we could perfectly identify errors
     total_errors = errors.sum()
@@ -519,7 +519,7 @@ def plot_risk_coverage_curve(uncertainties, predictions, labels, ax=None,
         oracle_risk = np.array([0, 0, error_rate])
         
         # Compute Oracle AURC using trapezoidal integration
-        oracle_aurc = np.trapz(oracle_risk, oracle_cov)
+        oracle_aurc = np.trapezoid(oracle_risk, oracle_cov)
         
         ax1.plot(oracle_cov, oracle_risk, 'g--', linewidth=2, 
                 label=f'Oracle (AURC={oracle_aurc:.6f})')
