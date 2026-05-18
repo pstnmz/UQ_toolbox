@@ -4,8 +4,12 @@
 
 > **Preprint:** [Steinmetz et al., medRxiv 2026](https://www.medrxiv.org/content/10.64898/2026.05.04.26350496v1) — DOI: 10.64898/2026.05.04.26350496
 
+```bash
+pip install FailCatcher
+```
+
 The project provides:
-- A reusable Python library (`ToolBox/`) implementing multiple UQ methods with a clean, unified API.
+- A reusable Python library (`ToolBox/`) implementing uncertainty quantification methods for pytorch classification models.
 - A full benchmarking pipeline (`Benchmarks/`), including model training, classification evaluation and failure detection evaluation on a diverse set of distribution shifts images.
 
 ---
@@ -49,23 +53,21 @@ FailCatcher/
 
 ## Quick start
 
-### 1. Install dependencies
+### 1. Install
 
 ```bash
-pip install -r requirements.txt
+pip install FailCatcher
 ```
 
-For covariate-shift corruption benchmarks, also install:
+For development (editable install from source):
 ```bash
-pip install medmnistc
+git clone https://github.com/pstnmz/FailCatcher && pip install -e FailCatcher/
 ```
 
-### 2. Install the ToolBox library
+### 2. Quick-start tutorial
 
-```bash
-cd ToolBox
-pip install -e .
-```
+See [`tutorial.ipynb`](tutorial.ipynb) for a self-contained end-to-end example on CIFAR-10:  
+download a model from HuggingFace → inference → MSR uncertainty → AUROC-f / AURC / AUGRC → plots.
 
 ### 3. Download models and datasets from HuggingFace
 

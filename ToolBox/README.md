@@ -6,12 +6,12 @@
 
 ## Installation
 
-From the repository root:
+From PyPI:
 ```bash
-pip install -e ToolBox/
+pip install FailCatcher
 ```
 
-Or directly from the `ToolBox/` directory:
+Or from source (editable install, for development):
 ```bash
 pip install -e .
 ```
@@ -130,7 +130,7 @@ Public API aggregator. Imports and re-exports all classes and functions for back
 
 ## Design notes
 
-- All UQ methods are **post-hoc**: no retraining is required.
+- Most UQ methods are **post-hoc**: no retraining is required. Two exceptions apply: **MC Dropout** requires dropout layers in the model architecture, and **Ensembling** requires multiple independently trained models (e.g. from cross-validation folds).
 - The library works with any PyTorch model that outputs class logits or probabilities.
 - MSR and MSR-calibrated scores are computed from **averaged softmax/sigmoid probabilities** across folds (not averaged logits), which is the standard practice for probability-based uncertainty.
 - GPS augmentation predictions must be **pre-computed** on the calibration set (see `Benchmarks/README.md` for the `TTA_calib` step) before the greedy search can run.
