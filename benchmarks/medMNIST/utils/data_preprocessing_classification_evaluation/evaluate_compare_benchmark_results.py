@@ -37,6 +37,8 @@ class RunRecord:
 	setup: str
 	best_auroc: float
 	best_augrc: float
+	error_rate: float = 0.0
+	augrc_ensemble: Optional[float] = None
 
 
 def parse_backbone(raw: str) -> str:
@@ -102,6 +104,11 @@ def load_latest_records(json_root: Path) -> List[RunRecord]:
 			dataset = str(payload.get("flag", "")).strip()
 			setup = str(payload.get("setup", "")).strip() or "base"
 			backbone = parse_backbone(str(payload.get("model_backbone", "")))
+			test_accuracy = payload.get("test_accuracy", None)
+			error_rate = float(1.0 - test_accuracy) if isinstance(test_accuracy, (int, float)) else 0.0
+			ens_method = methods.get("ZScore_Aggregation_ensemble", {})
+			augrc_ens_raw = ens_method.get("augrc") if isinstance(ens_method, dict) else None
+			augrc_ensemble = float(augrc_ens_raw) if isinstance(augrc_ens_raw, (int, float)) else None
 
 			rec = RunRecord(
 				shift_type=shift_type,
@@ -113,6 +120,8 @@ def load_latest_records(json_root: Path) -> List[RunRecord]:
 				setup=setup,
 				best_auroc=best_auroc,
 				best_augrc=best_augrc,
+				error_rate=error_rate,
+				augrc_ensemble=augrc_ensemble,
 			)
 
 			key = (shift_type, dataset, setup, backbone)
@@ -242,6 +251,165 @@ def format_abs(values: List[float]) -> str:
 	mu = mean(values)
 	sd = pstdev(values) if len(values) > 1 else 0.0
 	return f"{mu:.6f} +/- {sd:.6f} (n={len(values)})"
+
+
+def error_rate_vs_augrc_ensemble(records: List[RunRecord]) -> None:
+	"""Print error-rate vs ZScore_Aggregation_ensemble AUGRC analysis.
+
+	Per-record detail table, then summaries by shift type, by dataset, and overall.
+	"""
+	eligible = sorted(
+		[r for r in records if r.augrc_ensemble is not None and r.error_rate > 0.0],
+		key=lambda r: (r.shift_type, r.dataset, r.backbone, r.setup),
+	)
+
+	# Compute per-record values
+	rows: List[Tuple] = []
+	raw_by_shift: Dict[str, List[float]] = {k: [] for k in SHIFT_DIRS}
+	norm_by_shift: Dict[str, List[float]] = {k: [] for k in SHIFT_DIRS}
+	err_by_shift: Dict[str, List[float]] = {k: [] for k in SHIFT_DIRS}
+	augrc_by_shift: Dict[str, List[float]] = {k: [] for k in SHIFT_DIRS}
+	raw_by_dataset: Dict[str, List[float]] = {}
+	norm_by_dataset: Dict[str, List[float]] = {}
+	raw_all: List[float] = []
+	norm_all: List[float] = []
+	err_all: List[float] = []
+	augrc_ens_all: List[float] = []
+
+	for rec in eligible:
+		raw = (rec.error_rate - rec.augrc_ensemble) * 100.0  # percentage points
+		norm = raw / (rec.error_rate * 100.0) * 100.0        # % of error rate
+		rows.append((rec.shift_type, rec.dataset, rec.backbone, rec.setup,
+		             rec.error_rate * 100.0, rec.augrc_ensemble * 100.0, raw, norm))
+		raw_by_shift[rec.shift_type].append(raw)
+		norm_by_shift[rec.shift_type].append(norm)
+		err_by_shift[rec.shift_type].append(rec.error_rate * 100.0)
+		augrc_by_shift[rec.shift_type].append(rec.augrc_ensemble * 100.0)
+		raw_by_dataset.setdefault(rec.dataset, []).append(raw)
+		norm_by_dataset.setdefault(rec.dataset, []).append(norm)
+		raw_all.append(raw)
+		norm_all.append(norm)
+		err_all.append(rec.error_rate * 100.0)
+		augrc_ens_all.append(rec.augrc_ensemble * 100.0)
+
+	W = 104
+	SUM_W = 79
+	print("\n" + "=" * W)
+	print("Error rate vs ZScore_Aggregation_ensemble AUGRC — per-config details")
+	print(f"  (eligible records: {len(eligible)} / {len(records)})")
+	print("=" * W)
+
+	hdr = (
+		f"{'shift_type':<22s}  {'dataset':<24s}  {'backbone':<10s}  {'setup':<10s}"
+		f"  {'err_rate%':>9s}  {'AUGRC_ens%':>10s}  {'raw_red pp':>10s}  {'norm_red%':>9s}"
+	)
+	print(hdr)
+	print("-" * W)
+
+	prev_shift = None
+	for shift_type, dataset, backbone, setup, err_pct, augrc_pct, raw, norm in rows:
+		if prev_shift is not None and shift_type != prev_shift:
+			print()
+		prev_shift = shift_type
+		print(
+			f"{shift_type:<22s}  {dataset:<24s}  {backbone:<10s}  {setup:<10s}"
+			f"  {err_pct:>9.4f}  {augrc_pct:>10.4f}  {raw:>+10.4f}  {norm:>+9.2f}"
+		)
+
+	col_hdr = f"\n{'Group':<28s}  {'mean raw_red pp':>16s}  {'std':>8s}  {'mean norm%':>11s}  {'std':>8s}  {'n':>4s}"
+
+	# --- Summary by shift type ---
+	SUM_W2 = 96
+	print("\n" + "=" * SUM_W2)
+	print("Summary by shift type")
+	print("=" * SUM_W2)
+	print(
+		f"\n{'Group':<28s}  {'mean err%':>10s}  {'mean AUGRC%':>11s}"
+		f"  {'mean raw_red pp':>16s}  {'std':>8s}  {'mean norm%':>11s}  {'std':>8s}  {'n':>4s}"
+	)
+	print("-" * SUM_W2)
+	for shift_type in ["ID", "corruption shifts", "population shifts", "new class shifts"]:
+		rv = raw_by_shift[shift_type]
+		nv = norm_by_shift[shift_type]
+		ev = err_by_shift[shift_type]
+		av = augrc_by_shift[shift_type]
+		if rv:
+			mu_r, sd_r = mean(rv), (pstdev(rv) if len(rv) > 1 else 0.0)
+			mu_n, sd_n = mean(nv), (pstdev(nv) if len(nv) > 1 else 0.0)
+			mu_e = mean(ev)
+			mu_a = mean(av)
+			print(
+				f"{shift_type:<28s}  {mu_e:>10.4f}  {mu_a:>11.4f}"
+				f"  {mu_r:>+16.4f}  {sd_r:>8.4f}  {mu_n:>+11.2f}  {sd_n:>8.2f}  {len(rv):>4d}"
+			)
+		else:
+			print(f"{shift_type:<28s}  {'n=0':>10s}")
+	mu_all = mean(raw_all) if raw_all else float("nan")
+	sd_all = pstdev(raw_all) if len(raw_all) > 1 else 0.0
+	mu_all_n = mean(norm_all) if norm_all else float("nan")
+	sd_all_n = pstdev(norm_all) if len(norm_all) > 1 else 0.0
+	print("-" * SUM_W2)
+	print(
+		f"{'ALL':<28s}  {mean(err_all):>10.4f}  {mean(augrc_ens_all):>11.4f}"
+		f"  {mu_all:>+16.4f}  {sd_all:>8.4f}  {mu_all_n:>+11.2f}  {sd_all_n:>8.2f}  {len(raw_all):>4d}"
+	)
+
+	# --- Summary by dataset × shift type ---
+	print("\n" + "=" * SUM_W)
+	print("Summary by dataset × shift type")
+	print("=" * SUM_W)
+
+	# collect raw/norm keyed by (dataset, shift_type)
+	raw_ds_shift: Dict[Tuple[str, str], List[float]] = {}
+	norm_ds_shift: Dict[Tuple[str, str], List[float]] = {}
+	for rec in eligible:
+		raw = (rec.error_rate - rec.augrc_ensemble) * 100.0
+		norm = raw / (rec.error_rate * 100.0) * 100.0
+		raw_ds_shift.setdefault((rec.dataset, rec.shift_type), []).append(raw)
+		norm_ds_shift.setdefault((rec.dataset, rec.shift_type), []).append(norm)
+
+	shift_order = ["ID", "corruption shifts", "population shifts", "new class shifts"]
+	shift_abbr  = {"ID": "ID", "corruption shifts": "corrupt", "population shifts": "pop", "new class shifts": "new_cls"}
+
+	# header
+	col_w = 18
+	row_label_w = 28
+	header_parts = [f"{'dataset':<{row_label_w}s}"]
+	for s in shift_order:
+		header_parts.append(f"  {shift_abbr[s]:^{col_w}s}")
+	print("".join(header_parts))
+	sub_parts = [" " * row_label_w]
+	for _ in shift_order:
+		sub_parts.append(f"  {'raw pp / norm%':^{col_w}s}")
+	print("".join(sub_parts))
+	print("-" * (row_label_w + (col_w + 2) * len(shift_order)))
+
+	for dataset in sorted(raw_by_dataset):
+		row = [f"{dataset:<{row_label_w}s}"]
+		for s in shift_order:
+			rv = raw_ds_shift.get((dataset, s), [])
+			nv = norm_ds_shift.get((dataset, s), [])
+			if rv:
+				mu_r = mean(rv)
+				mu_n = mean(nv)
+				cell = f"{mu_r:>+6.2f} / {mu_n:>+6.2f}%"
+			else:
+				cell = f"{'—':^{col_w}s}"
+			row.append(f"  {cell:^{col_w}s}")
+		print("".join(row))
+
+	print("-" * (row_label_w + (col_w + 2) * len(shift_order)))
+	# ALL row
+	all_row = [f"{'ALL':<{row_label_w}s}"]
+	for s in shift_order:
+		rv = raw_by_shift[s]
+		nv = norm_by_shift[s]
+		if rv:
+			cell = f"{mean(rv):>+6.2f} / {mean(nv):>+6.2f}%"
+		else:
+			cell = f"{'—':^{col_w}s}"
+		all_row.append(f"  {cell:^{col_w}s}")
+	print("".join(all_row))
 
 
 def print_absolute_table(title: str, values: Dict[str, List[float]]) -> None:
@@ -404,6 +572,8 @@ def main() -> None:
 		"midog (new class shifts) − pathmnist (ID) AUROC-F (OOD − failure detection):",
 		midog_vs_pathmnist,
 	)
+
+	error_rate_vs_augrc_ensemble(records)
 
 
 if __name__ == "__main__":
