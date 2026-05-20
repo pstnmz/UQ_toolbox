@@ -71,7 +71,7 @@ download a model from HuggingFace → inference → MSR uncertainty → AUROC-f 
 
 ### 3. Download models and datasets from HuggingFace
 
-Pre-trained model checkpoints and pre-processed external datasets are available on HuggingFace. Run the one-command setup to skip training and manual preprocessing:
+UQ Benchmark trained model checkpoints and pre-processed external datasets are available on HuggingFace. Run the one-command setup to skip training and manual preprocessing:
 
 ```bash
 python scripts/setup_from_hub.py

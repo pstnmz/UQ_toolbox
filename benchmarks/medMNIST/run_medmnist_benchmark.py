@@ -140,15 +140,15 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         test_subset = 'external'
     
     # AMOS uses organamnist models and calibration → use organamnist GPS cache
-    # MIDOG uses pathmnist models and calibration → use pathmnist GPS cache
+    # MIDOG/HMU-CRC use pathmnist models and calibration → use pathmnist GPS cache
     if flag in ['amos2022', 'amos_external', 'amos22']:
         gps_cache_flag = 'organamnist'
-    elif flag == 'midog':
+    elif flag in ['midog', 'hmu-crc']:
         gps_cache_flag = 'pathmnist'
     else:
         gps_cache_flag = base_flag
     
-    color = base_flag in ['dermamnist', 'dermamnist-e', 'pathmnist', 'bloodmnist']
+    color = base_flag in ['dermamnist', 'dermamnist-e', 'pathmnist', 'bloodmnist', 'hmu-crc']
     calib_method = 'platt' if base_flag in ['breastmnist', 'pneumoniamnist'] else 'temperature'
     
     os.makedirs(output_dir, exist_ok=True)
@@ -161,7 +161,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     # Transforms
     transform, transform_tta = dataset_utils.get_transforms(color, image_size)
     
-    if base_flag not in ['amos2022', 'midog']:
+    if base_flag not in ['amos2022', 'midog', 'hmu-crc']:
         # Load datasets and models
         models = tr.load_models(base_flag, device=device, size=image_size, 
                                model_backbone=model_backbone, setup=setup)
@@ -281,6 +281,28 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             )
         else:
             raise ValueError("MIDOG dataset only supports new_class_shift mode. Use --new-class-shift flag.")
+    elif base_flag == 'hmu-crc':
+        # Load PathMNIST models and calibration data, use HMU-CRC as population shift test set
+        models = tr.load_models('pathmnist', device=device, size=image_size,
+                               model_backbone=model_backbone, setup=setup)
+
+        # PathMNIST is a color dataset - need color transforms
+        pathmnist_transform, pathmnist_transform_tta = dataset_utils.get_transforms(True, image_size)
+
+        [study_dataset, calib_dataset, _], \
+        [_, calib_loader, _], info = \
+            tr.load_datasets('pathmnist', True, image_size, pathmnist_transform, batch_size)
+
+        # Load calibration dataset with TTA transform (for GPS augmentation caching)
+        [_, calib_dataset_tta, _], \
+        [_, _, _], _ = \
+            tr.load_datasets('pathmnist', True, image_size, pathmnist_transform_tta, batch_size)
+
+        # Load HMU-CRC as population shift test set
+        test_dataset, test_loader, test_dataset_tta = dataset_utils.load_hmu_crc_dataset(
+            pathmnist_transform, pathmnist_transform_tta, batch_size,
+            workspace_root=Path(__file__).resolve().parent.parent.parent
+        )
     print(f" Models: {len(models)} folds")
     # For organamnist: study=train (medMNIST), calib=val (medMNIST)
     # For others: study=80% of (train+val), calib=20% of (train+val)
@@ -651,10 +673,10 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
 
     calibration_zscore_stats = {}
 
-    # For amos2022/midog in test_only mode: load pre-computed calibration z-score stats
+    # For amos2022/midog/hmu-crc in test_only mode: load pre-computed calibration z-score stats
     # from the corresponding in-distribution dataset results (organamnist / pathmnist).
     # This avoids re-running the expensive calibration pass.
-    if run_mode == 'test_only' and base_flag in ['amos2022', 'midog']:
+    if run_mode == 'test_only' and base_flag in ['amos2022', 'midog', 'hmu-crc']:
         import json as _json
         import glob as _glob
         calib_source_flag = gps_cache_flag  # 'organamnist' or 'pathmnist'
@@ -1412,7 +1434,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--flag', type=str, required=True,
         choices=['breastmnist', 'organamnist', 'pneumoniamnist', 'dermamnist', 'dermamnist-e',
-                'dermamnist-e-id', 'dermamnist-e-external', 'octmnist', 'pathmnist', 'bloodmnist', 'tissuemnist', 'amos2022', 'midog'],
+                'dermamnist-e-id', 'dermamnist-e-external', 'octmnist', 'pathmnist', 'bloodmnist', 'tissuemnist', 'amos2022', 'midog', 'hmu-crc'],
         help='MedMNIST dataset to benchmark. For dermamnist-e, use -id for ID centers or -external for OOD center'
     )
     

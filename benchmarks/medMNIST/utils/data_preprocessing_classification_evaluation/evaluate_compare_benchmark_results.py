@@ -573,6 +573,41 @@ def main() -> None:
 		midog_vs_pathmnist,
 	)
 
+	# ── HMU-CRC (population shift) vs PathMNIST ID ──
+	print("\n" + "=" * 70)
+	print("HMU-CRC (population shift) vs PathMNIST in-distribution")
+	print("=" * 70)
+
+	hmu_crc_ps_auroc = mean_by_backbone(records, "population shifts", "hmu-crc", "auroc")
+	print_absolute_table(
+		"hmu-crc population shifts best-CSF AUROC-F (failure detection):",
+		hmu_crc_ps_auroc,
+	)
+
+	hmu_vs_pathmnist = cross_dataset_pair_diffs(
+		records,
+		id_dataset="pathmnist",
+		shift_dataset="hmu-crc",
+		shift_type="population shifts",
+		metric_name="auroc",
+	)
+	print_backbone_table(
+		"pathmnist (ID) - hmu-crc (population shifts) AUROC-F:",
+		hmu_vs_pathmnist,
+	)
+
+	hmu_vs_pathmnist_augrc = cross_dataset_pair_diffs(
+		records,
+		id_dataset="pathmnist",
+		shift_dataset="hmu-crc",
+		shift_type="population shifts",
+		metric_name="augrc",
+	)
+	print_backbone_table(
+		"pathmnist (ID) - hmu-crc (population shifts) AUGRC:",
+		hmu_vs_pathmnist_augrc,
+	)
+
 	error_rate_vs_augrc_ensemble(records)
 
 

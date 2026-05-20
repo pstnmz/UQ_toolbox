@@ -35,7 +35,11 @@ import os
 from pathlib import Path
 
 # Add project root to path
+# repo_root = FailCatcher/Benchmarks/ — added to sys.path so medMNIST.* imports resolve.
+# workspace_root = FailCatcher/ — needed by dataset loaders that build paths like
+#   workspace_root / 'Benchmarks' / 'medMNIST' / ...
 repo_root = Path(__file__).parent.parent.parent.parent
+workspace_root = repo_root.parent
 sys.path.insert(0, str(repo_root))
 
 import torch
@@ -45,10 +49,10 @@ from datetime import datetime
 from torchvision import transforms
 
 # Import from UQ_Toolbox
-from benchmarks.medMNIST.utils.train_models_load_datasets import (
+from medMNIST.utils.train_models_load_datasets import (
     load_models, load_datasets, INFO, evaluate_model
 )
-from benchmarks.medMNIST.utils import dataset_utils
+import dataset_utils
 
 
 def compute_oracle_augrc(accuracy):
@@ -145,6 +149,9 @@ def evaluate_dataset_setup(dataset, model_name, setup, device, output_dir):
     elif dataset == 'amos22':
         load_flag = 'organamnist'  # Use organamnist models
         test_subset = 'amos'
+    elif dataset == 'hmu-crc':
+        load_flag = 'pathmnist'  # Use pathmnist models (closest domain match)
+        test_subset = 'hmu_crc'
     else:
         load_flag = dataset
         test_subset = 'all'
@@ -201,9 +208,19 @@ def evaluate_dataset_setup(dataset, model_name, setup, device, output_dir):
                 transform=transform,
                 transform_tta=transform_tta,
                 batch_size=3500,
-                workspace_root=repo_root
+                workspace_root=workspace_root
             )
             print(f" Loaded AMOS test data: {len(test_loader.dataset)} samples")
+        elif test_subset == 'hmu_crc':
+            # Load HMU-CRC external test dataset (population shift for PathMNIST)
+            transform_tta = transforms.Compose([transforms.ToTensor()])
+            test_dataset, test_loader, _ = dataset_utils.load_hmu_crc_dataset(
+                transform=transform,
+                transform_tta=transform_tta,
+                batch_size=3500,
+                workspace_root=workspace_root
+            )
+            print(f" Loaded HMU-CRC test data: {len(test_loader.dataset)} samples")
         else:
             datasets_list, dataloaders, _ = load_datasets(
                 dataflag=load_flag,
@@ -252,14 +269,10 @@ def evaluate_dataset_setup(dataset, model_name, setup, device, output_dir):
     }
     
     # Save results to appropriate folder
-    if dataset == 'amos22':
-        # Save to population_shift folder for AMOS
+    if dataset in ('amos22', 'hmu-crc'):
+        # Save to population_shift folder for external population shift datasets
         save_dir = output_dir.parent / 'population_shift'
         save_dir.mkdir(exist_ok=True)
-        
-        # Also cache predictions
-        cache_dir = repo_root / 'uq_benchmark_results' / 'cache'
-        cache_dir.mkdir(exist_ok=True, parents=True)
     else:
         # Save to in_distribution folder for regular datasets
         save_dir = output_dir / 'in_distribution'
@@ -291,10 +304,13 @@ def main():
         # 'tissuemnist',
         # 'octmnist',
         # 'pathmnist',
-        'amos22'
+        # 'amos22',
+        'hmu-crc'
     ]
     
-    model_names = ['resnet18', 'vit_b_16']
+    model_names = [
+        #'resnet18', 
+         'vit_b_16']
     setups = ['', 'DA', 'DO', 'DADO']  # Empty string = standard
     
     device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')

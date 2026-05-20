@@ -108,6 +108,101 @@ class MIDOGPatchDataset(Dataset):
         return image, label
 
 
+class HMUCRCDataset(torch.utils.data.Dataset):
+    """Dataset for HMU-CRC-Hist550K external test data (color RGB images).
+
+    HMU-CRC has 8 classes (ADI/DEB/LYM/MUC/MUS/NORM/STR/TUM, labels 0-7).
+    PathMNIST has 9 classes with an extra "background" class at index 1
+    (0=ADI, 1=BACK, 2=DEB, 3=LYM, 4=MUC, 5=MUS, 6=NORM, 7=STR, 8=TUM).
+    Labels are remapped here so that PathMNIST-trained models can be evaluated
+    directly: HMU-CRC label i → PathMNIST label HMU_TO_PATHMNIST[i].
+    """
+
+    # HMU-CRC (0-7) → PathMNIST (0,2-8): skip index 1 (background, absent in HMU-CRC)
+    HMU_TO_PATHMNIST = [0, 2, 3, 4, 5, 6, 7, 8]
+
+    def __init__(self, images, labels, transform=None):
+        self.images = images    # (N, 224, 224, 3) uint8
+        self.labels = labels    # (N,) int64, raw HMU-CRC labels 0-7
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        from PIL import Image as PILImage
+        img = PILImage.fromarray(self.images[idx], mode='RGB')
+        # Remap label to PathMNIST space so model outputs align with ground truth
+        label = self.HMU_TO_PATHMNIST[int(self.labels[idx])]
+        if self.transform:
+            img_tensor = self.transform(img)
+        else:
+            img_tensor = torch.from_numpy(np.array(img)).permute(2, 0, 1).float() / 255.0
+        return img_tensor, torch.tensor(label, dtype=torch.long)
+
+
+def load_hmu_crc_dataset(transform, transform_tta, batch_size=256, workspace_root=None):
+    """
+    Load HMU-CRC-Hist550K external test dataset (population shift for PathMNIST).
+
+    Args:
+        transform: Transform for normalized data
+        transform_tta: Transform for unnormalized data (TTA)
+        batch_size: Batch size for DataLoader
+        workspace_root: Path to workspace root (optional, auto-detected if None)
+
+    Returns:
+        tuple: (test_dataset, test_loader, test_dataset_tta)
+    """
+    if workspace_root is None:
+        workspace_root = Path(__file__).resolve().parent.parent.parent.parent
+
+    npz_path = workspace_root / 'Benchmarks' / 'medMNIST' / 'data' / 'HMU-CRC-Hist550K' / 'hmu_crc_224.npz'
+
+    if not npz_path.exists():
+        try:
+            _hub = _load_hub_module()
+            _hub.ensure_dataset_file("hmu-crc", "hmu_crc_224.npz", local_dir=npz_path.parent)
+        except Exception as hub_err:
+            raise FileNotFoundError(
+                f"\n HMU-CRC dataset file not found at {npz_path}\n"
+                f"   Attempted Hub download but failed: {hub_err}\n"
+                f"   To download all custom datasets run:  python scripts/setup_from_hub.py"
+            ) from hub_err
+
+    # Fast path: use memory-mapped .npy cache to avoid decompressing the 58 GB NPZ every run.
+    # The cache files are created automatically on the first run (one-time cost).
+    cache_dir = npz_path.parent
+    images_npy = cache_dir / 'hmu_crc_224_images.npy'
+    labels_npy = cache_dir / 'hmu_crc_224_labels.npy'
+
+    if images_npy.exists() and labels_npy.exists():
+        print(" Loading HMU-CRC-Hist550K external test dataset (memory-mapped cache)...")
+        images = np.load(str(images_npy), mmap_mode='r')  # instant — no RAM copy
+        labels = np.load(str(labels_npy), mmap_mode='r')
+    else:
+        npz_size_gb = npz_path.stat().st_size / 1e9
+        print(f" Loading HMU-CRC-Hist550K external test dataset from NPZ ({npz_size_gb:.1f} GB compressed — this may take several minutes)...")
+        data = np.load(str(npz_path), allow_pickle=True)
+        images = data['images']   # (N, 224, 224, 3) uint8
+        labels = data['labels']   # (N,) int64
+        print(f"  Saving memory-mapped cache for fast future loads (one-time, ~{images.nbytes/1e9:.1f} GB)...")
+        np.save(str(images_npy), images)
+        np.save(str(labels_npy), labels)
+        # Re-open as mmap so memory behaviour is consistent across runs
+        images = np.load(str(images_npy), mmap_mode='r')
+        labels = np.load(str(labels_npy), mmap_mode='r')
+
+    n_workers = min(8, __import__('os').cpu_count() or 4)
+    test_dataset = HMUCRCDataset(images, labels, transform=transform)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False,
+                             num_workers=n_workers, pin_memory=True)
+    test_dataset_tta = HMUCRCDataset(images, labels, transform=transform_tta)
+
+    print(f" HMU-CRC: {len(test_dataset)} samples, 8 classes (ADI/DEB/LYM/MUC/MUS/NORM/STR/TUM), {n_workers} workers")
+    return test_dataset, test_loader, test_dataset_tta
+
+
 def get_transforms(color, image_size=224):
     """
     Get standard transforms for medMNIST datasets.

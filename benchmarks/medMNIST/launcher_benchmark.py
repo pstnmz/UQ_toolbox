@@ -57,7 +57,7 @@ DATASETS_ID = [
 DATASETS_EXTERNAL = [
     'amos2022',  # OrganaMNIST → AMOS-2022 external test
     'dermamnist-e-external',  # DermaMNIST-E external centers,
-    'midog'
+    'hmu-crc'
     
 ]
 
