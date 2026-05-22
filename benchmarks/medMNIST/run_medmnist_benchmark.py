@@ -301,7 +301,8 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         # Load HMU-CRC as population shift test set
         test_dataset, test_loader, test_dataset_tta = dataset_utils.load_hmu_crc_dataset(
             pathmnist_transform, pathmnist_transform_tta, batch_size,
-            workspace_root=Path(__file__).resolve().parent.parent.parent
+            workspace_root=Path(__file__).resolve().parent.parent.parent,
+            num_workers=shared_loader_workers
         )
     print(f" Models: {len(models)} folds")
     # For organamnist: study=train (medMNIST), calib=val (medMNIST)

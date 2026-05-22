@@ -101,29 +101,18 @@ def compute_aurc(uncertainties, predictions, labels, num_bins=1000, correct_idx=
     else:
         errors = (sorted_predictions != sorted_labels).astype(float)
     
-    # Coverage percentages
-    coverages = []
-    risks = []
-    
-    for n_rejected in range(n_samples + 1):
-        if n_rejected == n_samples:
-            # All samples rejected
-            coverage = 0.0
-            risk = 0.0
-        else:
-            # Keep samples from n_rejected onwards (reject most uncertain)
-            kept_errors = errors[n_rejected:]
-            coverage = (n_samples - n_rejected) / n_samples
-            risk = kept_errors.mean() if len(kept_errors) > 0 else 0.0
-        
-        coverages.append(coverage)
-        risks.append(risk)
-    
-    coverages = np.array(coverages)
-    risks = np.array(risks)
-    
-    # Compute AURC using trapezoidal rule
-    # Sort by coverage (ascending)
+    # Coverage percentages — vectorized O(N) via reverse cumulative sum
+    # cum_errors[i] = sum of errors[i:] (i.e. errors among the i-th to last kept samples)
+    cum_errors = np.cumsum(errors[::-1])[::-1]          # [N]
+    n_kept = np.arange(n_samples, 0, -1, dtype=float)   # [N, N-1, ..., 1]
+    risks_main = cum_errors / n_kept                     # risk at each rejection threshold
+    coverages_main = n_kept / n_samples                  # coverage at each threshold
+
+    # Append the all-rejected point (coverage=0, risk=0)
+    coverages = np.append(coverages_main, 0.0)
+    risks = np.append(risks_main, 0.0)
+
+    # Already monotone (coverage descending then 0); sort ascending for trapezoid
     sorted_idx = np.argsort(coverages)
     coverages = coverages[sorted_idx]
     risks = risks[sorted_idx]
@@ -143,7 +132,7 @@ def compute_aurc(uncertainties, predictions, labels, num_bins=1000, correct_idx=
     }
 
 
-def compute_augrc(uncertainties, predictions, labels, num_bins=1000, correct_idx=None, incorrect_idx=None):
+def compute_augrc(uncertainties, predictions, labels, num_bins=1000, correct_idx=None, incorrect_idx=None, _precomputed_aurc=None):
     """
     Compute Area Under Generalized Risk-Coverage Curve (AUGRC).
     
@@ -214,8 +203,12 @@ def compute_augrc(uncertainties, predictions, labels, num_bins=1000, correct_idx
     augrc = term1 + term2
     
     # Also compute AURC for comparison (legacy metric)
-    aurc, aurc_metrics = compute_aurc(uncertainties, predictions, labels, num_bins, correct_idx, incorrect_idx)
-    
+    # Accepts pre-computed result to avoid a redundant O(N) pass when called from compute_all_metrics
+    if _precomputed_aurc is not None:
+        aurc, aurc_metrics = _precomputed_aurc
+    else:
+        aurc, aurc_metrics = compute_aurc(uncertainties, predictions, labels, num_bins, correct_idx, incorrect_idx)
+
     return augrc, {
         'auroc_f': float(auroc_f),
         'acc': float(acc),
@@ -269,9 +262,10 @@ def compute_all_metrics(uncertainties, predictions, labels, correct_idx=None, in
     else:
         auroc_f = np.nan
     
-    # AURC and AUGRC
+    # AURC and AUGRC — compute_aurc only once, pass result into compute_augrc to avoid double work
     aurc, aurc_metrics = compute_aurc(uncertainties, predictions, labels, correct_idx=correct_idx, incorrect_idx=incorrect_idx)
-    augrc, augrc_metrics = compute_augrc(uncertainties, predictions, labels, correct_idx=correct_idx, incorrect_idx=incorrect_idx)
+    augrc, augrc_metrics = compute_augrc(uncertainties, predictions, labels, correct_idx=correct_idx, incorrect_idx=incorrect_idx,
+                                         _precomputed_aurc=(aurc, aurc_metrics))
     
     return {
         'auroc_f': float(auroc_f),

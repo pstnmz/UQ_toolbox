@@ -141,7 +141,7 @@ class HMUCRCDataset(torch.utils.data.Dataset):
         return img_tensor, torch.tensor(label, dtype=torch.long)
 
 
-def load_hmu_crc_dataset(transform, transform_tta, batch_size=256, workspace_root=None):
+def load_hmu_crc_dataset(transform, transform_tta, batch_size=256, workspace_root=None, num_workers=None):
     """
     Load HMU-CRC-Hist550K external test dataset (population shift for PathMNIST).
 
@@ -193,7 +193,7 @@ def load_hmu_crc_dataset(transform, transform_tta, batch_size=256, workspace_roo
         images = np.load(str(images_npy), mmap_mode='r')
         labels = np.load(str(labels_npy), mmap_mode='r')
 
-    n_workers = min(8, __import__('os').cpu_count() or 4)
+    n_workers = num_workers if num_workers is not None else min(8, __import__('os').cpu_count() or 4)
     test_dataset = HMUCRCDataset(images, labels, transform=transform)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False,
                              num_workers=n_workers, pin_memory=True)

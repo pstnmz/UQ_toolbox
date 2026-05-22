@@ -109,6 +109,7 @@ DATASET_CONFIG = {
     'dermamnist-e-external': {'batch_size': 3500, 'gps_subsample': 5000},
     'amos2022': {'batch_size': 3500, 'gps_subsample': 5000},
     'midog': {'batch_size': 3500, 'gps_subsample': 5000},
+    'hmu-crc': {'batch_size': 3500, 'gps_subsample': 5000},
 }
 
 
