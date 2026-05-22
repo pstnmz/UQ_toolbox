@@ -130,6 +130,11 @@ def load_all_results(results_dir):
                     'per_fold_bacc': per_fold_bacc,
                     'ensemble_bacc': ensemble_bacc,
                 }
+            elif dataset == 'hmu-crc':
+                    results['pathmnist'][model][setup]['population'] = {
+                        'per_fold_bacc': per_fold_bacc,
+                        'ensemble_bacc': ensemble_bacc,
+                    }
     
     return results
 
@@ -647,14 +652,14 @@ def create_three_column_layout(results, output_dir):
     
     # Define datasets and their shift availability
     dataset_rows = [
-        ('dermamnist-e-id', True, True, True),  # id, corruption, ood
-        ('pathmnist', True, True, False),       # only population
+        ('dermamnist-e-id', True, True, True),  # id, corruption, population
+        ('pathmnist', True, True, True),       # id, corruption, population
         ('octmnist', True, True, False),         # id, corruption
         ('pneumoniamnist', True, True, False),   # id, corruption
         ('breastmnist', True, True, False),      # id, corruption
         ('bloodmnist', True, True, False),       # id, corruption
         ('tissuemnist', True, True, False),      # id, corruption
-        ('organamnist', True, True, True),       # id, corruption, amos
+        ('organamnist', True, True, True),       # id, corruption, population
     ]
     
     n_rows = len(dataset_rows)
@@ -713,7 +718,7 @@ def create_three_column_layout(results, output_dir):
             elif dataset_name == 'dermamnist-e-id':
                 subtitle = '(Derma-e-OOD)'
             elif dataset_name == 'pathmnist':
-                subtitle = '(PathMNIST)'
+                subtitle = '(HMU-CRC)'
             else:
                 subtitle = ''
             
@@ -777,7 +782,7 @@ def create_all_datasets_boxplots(results, output_dir):
     # Define dataset rows with their shift configurations
     # Format: (dataset_id, dataset_corruption, dataset_population, display_name)
     dataset_rows = [
-        ('pathmnist', 'pathmnist', None, 'Path'),
+        ('pathmnist', 'pathmnist', 'hmu-crc', 'Path'),
         ('dermamnist-e-id', 'dermamnist-e-id', 'dermamnist-e-ood', 'Derma-e'),
         ('octmnist', 'octmnist', None, 'OCT'),
         ('pneumoniamnist', 'pneumoniamnist', None, 'Pneumonia'),
@@ -839,6 +844,8 @@ def create_all_datasets_boxplots(results, output_dir):
                 title += '\n(Derma-e-OOD)'
             elif ds_pop == 'organamnist':
                 title += '\n(AMOS-2022)'
+            elif ds_pop == 'hmu-crc':
+                title += '\n(HMU-CRC)'
             ax_pop.set_title(title, fontsize=12, fontweight='bold', pad=10)
         ax_pop.set_ylabel('')  # No ylabel for rightmost column
     

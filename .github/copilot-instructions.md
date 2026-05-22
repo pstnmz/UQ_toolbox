@@ -1,4 +1,4 @@
-# UQ Toolbox - AI Agent Instructions
+ex# UQ Toolbox - AI Agent Instructions
 
 ## Project Overview
 **UQ_Toolbox** is a post-hoc uncertainty quantification toolkit for PyTorch deep learning models in medical imaging. The project benchmarks multiple UQ methods (GPS, TTA, Ensemble, KNN, MSR calibration) on medMNIST datasets and external test sets like AMOS-2022.

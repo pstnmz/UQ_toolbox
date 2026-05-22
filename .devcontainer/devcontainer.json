@@ -1,0 +1,25 @@
+{
+  "name": "failcatcher-safe-gpu",
+  "image": "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "runArgs": [
+    "--gpus=all",
+    "--cpus=16",
+    "--memory=64g",
+    "--security-opt=no-new-privileges"
+  ],
+  "remoteUser": "root",
+  "mounts": [
+  "source=/etc/ssl/certs/ZscalerRoot0.pem,target=/usr/local/share/ca-certificates/zscaler.crt,type=bind"
+  ],
+  "postCreateCommand": "apt-get update && apt-get install -y git curl ca-certificates && update-ca-certificates && git config --global --add safe.directory /workspace",
+  "remoteEnv": {
+  "HTTP_PROXY": "http://wpad.curie.fr:80",
+  "HTTPS_PROXY": "http://wpad.curie.fr:80",
+  "http_proxy": "http://wpad.curie.fr:80",
+  "https_proxy": "http://wpad.curie.fr:80",
+  "NODE_EXTRA_CA_CERTS": "/usr/local/share/ca-certificates/zscaler.crt",
+  "REQUESTS_CA_BUNDLE": "/etc/ssl/certs/ca-certificates.crt",
+  "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt"
+}}
