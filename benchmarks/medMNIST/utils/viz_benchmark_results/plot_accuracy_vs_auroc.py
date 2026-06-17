@@ -572,15 +572,11 @@ def create_scatter_by_shift(data, output_dir):
 
 def create_per_method_correlation_plots(data, output_dir):
     """
-    Create a single large figure with 3 shift types stacked vertically.
-    Each shift has a 2-row × 5-column grid of method subplots.
-    
-    Args:
-        data: dict with 'per_fold' and 'ensemble' lists
-        output_dir: directory to save plots
+    One subplot per UQ method with all shifts (ID, CS, PS) merged into a single cloud.
+    Layout: 2 rows × 5 columns (10 methods).
     """
     all_data = data['per_fold'] + data['ensemble']
-    
+
     # Rename methods for display
     name_mapping = {
         'MSR_calibrated': 'MSR-S',
@@ -591,168 +587,86 @@ def create_per_method_correlation_plots(data, output_dir):
         'ZScore_Aggregation_per_fold': 'Mean Agg',
         'ZScore_Aggregation_ensemble': 'Mean Agg + Ens'
     }
-    
     for d in all_data:
         if d['method'] in name_mapping:
             d['method'] = name_mapping[d['method']]
-    
-    # Define shift order and titles
-    shift_info = [
-        ('in_distribution', 'In-Distribution'),
-        ('corruption', 'Corruption Shifts'),
-        ('population', 'Population Shifts')
-    ]
-    
-    # Get all methods across all shifts
-    all_methods = set(d['method'] for d in all_data)
-    
-    # Create colors based on ALPHABETICAL order (for consistency with other plots)
-    methods_for_colors = sorted(all_methods)
-    colors = plt.cm.tab20(np.linspace(0, 1, len(methods_for_colors)))
-    method_colors = dict(zip(methods_for_colors, colors))
-    
-    # Reorder methods for display (Mean Agg methods at end) but keep color mapping
-    mean_agg_methods = ['Mean Agg', 'Mean Agg + Ens']
-    regular_methods = sorted([m for m in all_methods if m not in mean_agg_methods])
-    methods = regular_methods + [m for m in mean_agg_methods if m in all_methods]
-    
-    n_methods = len(methods)
-    n_cols = 5
-    n_rows_per_shift = (n_methods + n_cols - 1) // n_cols
-    n_shifts = len(shift_info)
-    
-    # Create large figure with nested GridSpec for custom spacing
-    fig = plt.figure(figsize=(20, 4*n_rows_per_shift*n_shifts))
-    
-    import matplotlib.gridspec as gridspec
-    # Outer GridSpec: one row per shift group with larger gaps between them
-    outer_gs = gridspec.GridSpec(n_shifts, 1, figure=fig, hspace=0.28)
-    
-    # Create axes array manually
-    total_rows = n_rows_per_shift * n_shifts
-    axes = np.empty((total_rows, n_cols), dtype=object)
-    
-    # For each shift, create an inner GridSpec with tight spacing
-    for shift_idx in range(n_shifts):
-        inner_gs = gridspec.GridSpecFromSubplotSpec(
-            n_rows_per_shift, n_cols, 
-            subplot_spec=outer_gs[shift_idx],
-            hspace=0.21, wspace=0.3
-        )
-        
-        # Fill in the axes
-        for row_in_shift in range(n_rows_per_shift):
-            for col in range(n_cols):
-                row = shift_idx * n_rows_per_shift + row_in_shift
-                axes[row, col] = fig.add_subplot(inner_gs[row_in_shift, col])
-    
-    all_corr_values = []  # collect r across all 30 subplots for global mean
 
-    for shift_idx, (shift_type, shift_title) in enumerate(shift_info):
-        shift_data = [d for d in all_data if d['shift'] == shift_type]
-        
-        if not shift_data:
-            continue
-        
-        # Get methods available for this shift
-        shift_methods = [m for m in methods if any(d['method'] == m for d in shift_data)]
-        shift_methods = ['MSR', 'MSR-S', 'MLS', 'TTA', 'GPS', 'MCD', 'KNN', 'DE', 'Mean Agg', 'Mean Agg + Ens']
-        for method_idx, method in enumerate(shift_methods):
-            row_in_shift = method_idx // n_cols
-            col = method_idx % n_cols
-            # Calculate absolute row index
-            row = shift_idx * n_rows_per_shift + row_in_shift
-            ax = axes[row, col]
-            
-            # Get data for this method
-            method_data = [d for d in shift_data if d['method'] == method]
-            
-            x = np.array([d['balanced_accuracy'] for d in method_data])
-            y = np.array([d['auroc_f'] for d in method_data])
-            
-            # Plot scatter with special handling for Mean Agg methods
-            if method == 'Mean Agg':
-                ax.scatter(x, y, s=150, marker='*', c='red',
-                          alpha=0.7, edgecolors='darkred', linewidths=0.5)
-            elif method == 'Mean Agg + Ens':
-                ax.scatter(x, y, s=150, marker='$\u26A1$', c="#f4c97a",
-                          alpha=0.7, edgecolors='black', linewidths=0.5)
-            else:
-                ax.scatter(x, y, c=[method_colors[method]], marker='o', s=50,
-                          alpha=0.7, edgecolors='white', linewidths=0.5)
-            
-            # Compute and display correlation
-            if len(x) > 1:
-                corr = np.corrcoef(x, y)[0, 1]
-                if not np.isnan(corr):
-                    all_corr_values.append(corr)
-                
-                # Add trend line
-                z = np.polyfit(x, y, 1)
-                p = np.poly1d(z)
-                x_line = np.linspace(x.min(), x.max(), 100)
-                ax.plot(x_line, p(x_line), "r--", alpha=0.5, linewidth=2)
-                
-                # Add correlation text with linear approximation
-                ax.text(0.4, 0.2, f'r = {corr:.2f}\ny = {z[0]:.2f}x + {z[1]:.2f}', 
-                       transform=ax.transAxes, fontsize=12, 
-                       verticalalignment='top',
-                       bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
-            
-            # Add x=y diagonal line
-            ax.plot([0.4, 1.0], [0.4, 1.0], 'k--', alpha=0.3, linewidth=1, zorder=0)
-            
-            # Only show labels on specific subplots to reduce clutter
-            # X-label: only on row 1 (second row of first shift) - leftmost subplot
-            if row in [1, 3, 5]:# and col == 0:
-                ax.set_xlabel('Balanced Accuracy', fontsize=11, fontweight='bold')
-            else:
-                ax.set_xlabel('')
-            
-            # Y-label: only on first subplot of each pair of rows (row 0, 2, 4)
-            if col == 0:# and row_in_shift == 0:
-                ax.set_ylabel('AUROC_f', fontsize=11, fontweight='bold')
-            else:
-                ax.set_ylabel('')
-            
-            # Add shift label to first subplot of each shift
-            if method_idx == 2:
-                ax.text(0.5, 1.15, shift_title, transform=ax.transAxes,
-                       fontsize=16, fontweight='bold', ha='center')
-            
-            ax.set_title(method, fontsize=13, fontweight='bold')
-            ax.grid(True, alpha=0.3, linestyle='--')
-            
-            # Set consistent limits
-            ax.set_xlim([0.4, 1.0])
-            ax.set_ylim([0.4, 1.0])
-        
-        # Hide unused subplots in this shift's grid
-        n_used = len(shift_methods)
-        for idx in range(n_used, n_rows_per_shift * n_cols):
-            row_in_shift = idx // n_cols
-            col = idx % n_cols
-            row = shift_idx * n_rows_per_shift + row_in_shift
-            axes[row, col].axis('off')
-    
-    # fig.suptitle('Method-Specific Accuracy vs AUROC_f Correlations Across All Shift Types',
-    #             fontsize=18, fontweight='bold', y=0.995)
-    
+    # Fixed display order (consistent with the per-shift version)
+    methods = ['MSR', 'MSR-S', 'MLS', 'TTA', 'GPS', 'MCD', 'KNN', 'DE', 'Mean Agg', 'Mean Agg + Ens']
+
+    # Colors keyed by method name (alphabetical, for consistency with other plots)
+    all_methods_alpha = sorted(set(d['method'] for d in all_data))
+    method_colors = dict(zip(all_methods_alpha,
+                             plt.cm.tab20(np.linspace(0, 1, len(all_methods_alpha)))))
+
+    n_cols = 5
+    n_rows = (len(methods) + n_cols - 1) // n_cols
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 4 * n_rows))
+
+    all_corr_values = []
+
+    for method_idx, method in enumerate(methods):
+        row = method_idx // n_cols
+        col = method_idx % n_cols
+        ax = axes[row, col]
+
+        # All shifts merged
+        method_data = [d for d in all_data if d['method'] == method]
+        x = np.array([d['balanced_accuracy'] for d in method_data])
+        y = np.array([d['auroc_f'] for d in method_data])
+
+        # Scatter — same style as the per-shift version
+        if method == 'Mean Agg':
+            ax.scatter(x, y, s=150, marker='*', c='red',
+                       alpha=0.7, edgecolors='darkred', linewidths=0.5)
+        elif method == 'Mean Agg + Ens':
+            ax.scatter(x, y, s=150, marker='$\u26A1$', c="#f4c97a",
+                       alpha=0.7, edgecolors='black', linewidths=0.5)
+        else:
+            ax.scatter(x, y, c=[method_colors.get(method, '#888888')], marker='o', s=50,
+                       alpha=0.7, edgecolors='white', linewidths=0.5)
+
+        # Trend line + annotation
+        if len(x) > 1:
+            corr = np.corrcoef(x, y)[0, 1]
+            if not np.isnan(corr):
+                all_corr_values.append(corr)
+            z = np.polyfit(x, y, 1)
+            x_line = np.linspace(x.min(), x.max(), 100)
+            ax.plot(x_line, np.poly1d(z)(x_line), "r--", alpha=0.5, linewidth=2)
+            ax.text(0.4, 0.2, f'r = {corr:.2f}\ny = {z[0]:.2f}x + {z[1]:.2f}',
+                    transform=ax.transAxes, fontsize=12, verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
+
+        # x=y diagonal
+        ax.plot([0.4, 1.0], [0.4, 1.0], 'k--', alpha=0.3, linewidth=1, zorder=0)
+
+        ax.set_title(method, fontsize=13, fontweight='bold')
+        ax.set_xlim([0.4, 1.0])
+        ax.set_ylim([0.4, 1.0])
+        ax.grid(True, alpha=0.3, linestyle='--')
+
+        if col == 0:
+            ax.set_ylabel('AUROC_f', fontsize=11, fontweight='bold')
+        if row == n_rows - 1:
+            ax.set_xlabel('Balanced Accuracy', fontsize=11, fontweight='bold')
+
+    # Hide unused subplots
+    for idx in range(len(methods), n_rows * n_cols):
+        axes[idx // n_cols, idx % n_cols].axis('off')
+
     plt.tight_layout()
-    # Note: hspace is already set in GridSpec
-    
-    # Print global mean correlation over all subplots (10 CSFs × 3 shifts)
+
     if all_corr_values:
         mean_r = np.mean(all_corr_values)
         std_r = np.std(all_corr_values)
-        print(f"\nMean Pearson r over {len(all_corr_values)} subplots (10 CSFs × 3 shifts): "
+        print(f"\nMean Pearson r over {len(all_corr_values)} subplots (all shifts merged): "
               f"{mean_r:.4f} ± {std_r:.4f}")
 
-    # Save merged figure
     output_path = output_dir / 'per_method_correlation_all_shifts.png'
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f" Merged per-method correlation plot saved to {output_path}")
-    
     plt.close(fig)
 
 

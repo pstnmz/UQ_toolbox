@@ -70,7 +70,7 @@ for i, label in enumerate(labels):
     
     plt.annotate(label, (train_sizes[i], imbalance_ratios[i]), 
                 xytext=xytext, textcoords='offset points', 
-                fontsize=12, fontweight='bold', ha=ha)
+                fontsize=14, fontweight='bold', ha=ha)
 
 plt.xscale('log')
 plt.yscale('log')
@@ -80,9 +80,9 @@ ax = plt.gca()
 ax.yaxis.set_major_locator(FixedLocator([10, 50, 80]))
 ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{int(x)}'))
 
-plt.xlabel('Training Set Size (log scale)', fontsize=12, fontweight='bold')
-plt.ylabel('Imbalance Ratio (IR = $p_{max}/p_{min}$, log scale)', fontsize=12, fontweight='bold')
-plt.title('MedMNIST Datasets: Training Size vs Class Imbalance', fontsize=14, fontweight='bold')
+plt.xlabel('Training Set Size (log scale)', fontsize=14, fontweight='bold')
+plt.ylabel('Imbalance Ratio (IR = $p_{max}/p_{min}$, log scale)', fontsize=14, fontweight='bold')
+plt.title('MedMNIST Datasets: Training Size vs Class Imbalance', fontsize=16, fontweight='bold')
 plt.grid(True, alpha=0.3, linestyle='--')
 
 # Create merged legend with image type and number of classes
@@ -102,7 +102,7 @@ for n in class_sizes:
 
 # Create single merged legend
 plt.legend(handles=legend_elements, loc='upper left', 
-          fontsize=10, title='Image Type & Number of Classes', framealpha=0.9, ncol=1)
+          fontsize=14, framealpha=0.9, ncol=1)
 
 plt.tight_layout()
 

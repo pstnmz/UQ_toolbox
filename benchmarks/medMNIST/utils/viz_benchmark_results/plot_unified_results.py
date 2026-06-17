@@ -730,8 +730,8 @@ def create_combined_radar_histogram_figure_ncs_ps(results_auroc, results_augrc, 
     print(f"\\nGenerating NCS+PS combined radar + histogram figure (both metrics)...")
     
     # Add row labels at left (matching ID+CS position)
-    fig.text(0.10, 0.70, 'AUROC_f', ha='center', va='center', fontsize=18, fontweight='bold', rotation=90)
-    fig.text(0.10, 0.27, 'AUGRC', ha='center', va='center', fontsize=18, fontweight='bold', rotation=90)
+    fig.text(0.10, 0.80, 'AUROC_f', ha='center', va='center', fontsize=18, fontweight='bold', rotation=90)
+    fig.text(0.10, 0.37, 'AUGRC', ha='center', va='center', fontsize=18, fontweight='bold', rotation=90)
     
     # Add column titles at top (matching ID+CS)
     fig.text(0.17, 0.92, 'ResNet18\nNCS + PS', ha='center', va='center', fontsize=14, fontweight='bold')

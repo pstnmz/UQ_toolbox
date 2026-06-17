@@ -191,6 +191,91 @@ class GPSMethod(UQMethod):
 # FUNCTIONAL API (existing, for backward compatibility)
 # ============================================================================
 
+def _build_tta_aug_transform(usingBetterRandAugment, n, m, image_normalization,
+                              nb_channels, mean, std, image_size, policy=None):
+    """
+    Build a single TTA augmentation transform without materializing any images.
+
+    For standard TTA (usingBetterRandAugment=False) this creates a fresh
+    torchvision.RandAugment pipeline.  For BetterRandAugment it wraps a single
+    policy.  Used by the streaming TTA inference path to avoid allocating the
+    full [N, C, H, W] tensor in RAM.
+    """
+    if usingBetterRandAugment:
+        rand_aug = BetterRandAugment(
+            n=n, m=m,
+            resample=(policy is None),
+            transform=policy,
+            verbose=False, randomize_sign=False, image_size=image_size,
+        )
+    else:
+        rand_aug = transforms.RandAugment(num_ops=n, magnitude=m)
+
+    return transforms.Compose([
+        EnsurePIL(),
+        transforms.Lambda(lambda img: img.convert("RGB")),
+        rand_aug,
+        *([to_1_channel] if nb_channels == 1 else []),
+        transforms.PILToTensor(),
+        transforms.ConvertImageDtype(torch.float),
+        *([transforms.Normalize(mean=mean, std=std)] if image_normalization else []),
+    ])
+
+
+def _stream_tta_inference(dataset, aug_transform, models, device, batch_size,
+                           dataloader_workers=4, cached_dataset=None):
+    """
+    Run inference with aug_transform applied on-the-fly (streaming).
+
+    Never materializes the full [N, C, H, W] tensor — at most one batch of
+    images lives in RAM at a time.  Handles both plain datasets (transform-swap)
+    and MONAI CacheDatasets (_CachedRandAugDataset wrapper).
+
+    Returns:
+        torch.Tensor: [N, M, num_classes] predictions on CPU
+    """
+    if not isinstance(models, list):
+        models = [models]
+
+    if cached_dataset is not None:
+        aug_ds = _CachedRandAugDataset(cached_dataset, aug_transform)
+        loader = DataLoader(aug_ds, batch_size=batch_size, shuffle=False,
+                            num_workers=dataloader_workers, pin_memory=True)
+        all_preds = []
+        with torch.no_grad():
+            for batch in loader:
+                preds = get_batch_predictions(models, batch[0].to(device), device)
+                all_preds.append(preds.cpu())
+        return torch.cat(all_preds, dim=0)  # [N, M, C]
+
+    # Plain dataset: temporarily swap transform, stream, restore
+    if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'datasets'):
+        saved = [s.transform for s in dataset.dataset.datasets]
+        for s in dataset.dataset.datasets:
+            s.transform = aug_transform
+    else:
+        saved = dataset.transform
+        dataset.transform = aug_transform
+
+    try:
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False,
+                            num_workers=dataloader_workers, pin_memory=True)
+        all_preds = []
+        with torch.no_grad():
+            for batch in loader:
+                preds = get_batch_predictions(models, batch[0].to(device), device)
+                all_preds.append(preds.cpu())
+    finally:
+        # Always restore, even on error
+        if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'datasets'):
+            for s, t in zip(dataset.dataset.datasets, saved):
+                s.transform = t
+        else:
+            dataset.transform = saved
+
+    return torch.cat(all_preds, dim=0)  # [N, M, C]
+
+
 def _batched_augmentation_inference(augmented_inputs, models, device, batch_size, ensemble_mode=False):
     """
     Process multiple augmentations in a single forward pass (faster).
@@ -361,7 +446,8 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
         nb_channels=1, mean=None, std=None, image_size=51, batch_size=None, 
         use_monai_cache=False, cache_rate=1.0, cache_num_workers=0, 
         dataloader_workers=None, is_gps_mode=False, average_groups=True,
-        ensemble_mode=False, return_per_fold=False, seed=None):
+        ensemble_mode=False, return_per_fold=False, seed=None,
+        gps_n_concurrent=3):
     """
     Perform Test-Time Augmentation (TTA) on a batch of images.
     
@@ -414,145 +500,79 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
             all_groups_model_stds = [] if ensemble_mode else None
             all_groups_model_mean_probs = [] if ensemble_mode else None  # [G, M, N, C]
             
-            # Memory-efficient mode: process one policy at a time if group is large
-            # Heuristic: if K policies * N samples * batch_size might exceed RAM, go sequential
-            memory_efficient_threshold = 5  # Process sequentially if > 5 policies in a group (typical with top_k=3)
-            
+            # Auto-scale DataLoader workers to keep the GPU fed.
+            # Forking worker processes from threads (ThreadPoolExecutor) is unsafe on
+            # Linux when CUDA is initialised — workers inherit broken CUDA state and
+            # crash with exit code 1.  Sequential streaming with many workers avoids
+            # all of this while still delivering high augmentation throughput.
+            _n_cpus = os.cpu_count() or 8
+            _dl_workers = dataloader_workers or min(_n_cpus, 32)
+            print(f" GPS streaming: {_dl_workers} DataLoader workers per policy pass")
+
             for group_idx, policy_group in enumerate(transformations):
-                print(f" Applying policy group {group_idx + 1}/{len(transformations)} ({len(policy_group)} policies)...")
-                
+                print(f" Applying policy group {group_idx + 1}/{len(transformations)} "
+                      f"({len(policy_group)} policies)...")
                 K = len(policy_group)
-                use_sequential = K > memory_efficient_threshold
-                
-                if use_sequential:
-                    print(f" Using memory-efficient mode (processing {K} policies one at a time)")
-                    # Process one policy at a time to avoid RAM buildup
-                    if ensemble_mode:
-                        # Track predictions per model: [M] → list of [K, N, num_classes]
-                        M = len(models) if isinstance(models, list) else 1
-                        model_policy_preds = [[] for _ in range(M)]
-                        
-                        for policy_idx, single_policy in enumerate(policy_group):
-                            if policy_idx % 10 == 0:
-                                print(f" Policy {policy_idx+1}/{K}...")
-                            
-                            # Apply single policy: [1, N, C, H, W]
-                            augmented_inputs, _ = apply_augmentations(
-                                dataset, 1, usingBetterRandAugment, n, m, 
-                                image_normalization, nb_channels, mean, std, image_size, 
-                                [single_policy], batch_size=batch_size
-                            )
-                            
-                            # Inference: [M, 1, N, num_classes]
-                            policy_preds = _batched_augmentation_inference(
-                                augmented_inputs, models, device, batch_size, ensemble_mode=True
-                            )
-                            
-                            # Store per model: [1, N, num_classes]
-                            for model_idx in range(M):
-                                model_policy_preds[model_idx].append(policy_preds[model_idx, 0])  # [N, num_classes]
-                        
-                        # Stack all policies per model: [K, N, num_classes]
-                        model_stds = []
+
+                if ensemble_mode:
+                    M = len(models) if isinstance(models, list) else 1
+                    model_policy_preds = [[] for _ in range(M)]
+
+                    for policy_idx, single_policy in enumerate(policy_group):
+                        if policy_idx % max(1, K // 5) == 0:
+                            print(f" Policy {policy_idx+1}/{K}...")
+                        aug_transform = _build_tta_aug_transform(
+                            usingBetterRandAugment, n, m, image_normalization,
+                            nb_channels, mean, std, image_size, policy=single_policy
+                        )
+                        aug_preds = _stream_tta_inference(
+                            dataset, aug_transform, models, device, batch_size,
+                            dataloader_workers=_dl_workers,
+                            cached_dataset=cached_dataset,
+                        )  # [N, M, C]
                         for model_idx in range(M):
-                            model_preds_stacked = torch.stack(model_policy_preds[model_idx], dim=0)  # [K, N, num_classes]
-                            # Compute std across K policies
-                            std_per_class = torch.std(model_preds_stacked, dim=0)  # [N, num_classes]
-                            
-                            if std_per_class.shape[1] == 1:
-                                model_std = std_per_class.squeeze(1).cpu().numpy()
-                            else:
-                                model_std = torch.mean(std_per_class, dim=1).cpu().numpy()
-                            
-                            model_stds.append(model_std)
-                        
-                        all_groups_model_stds.append(np.array(model_stds))  # [M, N]
-                        group_stds = np.mean(model_stds, axis=0)  # [N]
-                        # Per-model mean softmax probs for this group: [M, N, C]
-                        group_model_mean_probs = np.array([
-                            torch.stack(model_policy_preds[mi], dim=0).mean(dim=0).cpu().numpy()
-                            for mi in range(M)
-                        ])
-                        all_groups_model_mean_probs.append(group_model_mean_probs)  # [M, N, C]
-                    else:
-                        # Ensemble averaging: track [K, N, num_classes]
-                        all_policy_preds = []
-                        
-                        for policy_idx, single_policy in enumerate(policy_group):
-                            if policy_idx % 10 == 0:
-                                print(f" Policy {policy_idx+1}/{K}...")
-                            
-                            augmented_inputs, _ = apply_augmentations(
-                                dataset, 1, usingBetterRandAugment, n, m, 
-                                image_normalization, nb_channels, mean, std, image_size, 
-                                [single_policy], batch_size=batch_size
-                            )
-                            
-                            # Inference: [1, N, num_classes]
-                            policy_preds = _batched_augmentation_inference(
-                                augmented_inputs, models, device, batch_size, ensemble_mode=False
-                            )
-                            all_policy_preds.append(policy_preds[0])  # [N, num_classes]
-                        
-                        # Stack and compute std: [K, N, num_classes]
-                        all_preds_stacked = torch.stack(all_policy_preds, dim=0)
-                        std_per_class = torch.std(all_preds_stacked, dim=0)  # [N, num_classes]
-                        
+                            model_policy_preds[model_idx].append(aug_preds[:, model_idx, :])
+
+                    model_stds = []
+                    for model_idx in range(M):
+                        model_preds_stacked = torch.stack(model_policy_preds[model_idx], dim=0)  # [K, N, C]
+                        std_per_class = torch.std(model_preds_stacked, dim=0)  # [N, C]
                         if std_per_class.shape[1] == 1:
-                            group_stds = std_per_class.squeeze(1).cpu().numpy()
+                            model_std = std_per_class.squeeze(1).cpu().numpy()
                         else:
-                            group_stds = torch.mean(std_per_class, dim=1).cpu().numpy()
+                            model_std = torch.mean(std_per_class, dim=1).cpu().numpy()
+                        model_stds.append(model_std)
+
+                    all_groups_model_stds.append(np.array(model_stds))  # [M, N]
+                    group_stds = np.mean(model_stds, axis=0)  # [N]
+                    group_model_mean_probs = np.array([
+                        torch.stack(model_policy_preds[mi], dim=0).mean(dim=0).cpu().numpy()
+                        for mi in range(M)
+                    ])
+                    all_groups_model_mean_probs.append(group_model_mean_probs)  # [M, N, C]
                 else:
-                    # Standard batched mode (fast but uses more RAM)
-                    # Get augmented inputs: [K, N, C, H, W]
-                    augmented_inputs, _ = apply_augmentations(
-                        dataset, len(policy_group), usingBetterRandAugment, n, m, 
-                        image_normalization, nb_channels, mean, std, image_size, 
-                        policy_group, batch_size=batch_size
-                    )
-                    
-                    # Use batched inference
-                    predictions = _batched_augmentation_inference(
-                        augmented_inputs, models, device, batch_size, ensemble_mode=ensemble_mode
-                    )  # [K, N, num_classes] or [M, K, N, num_classes] if ensemble_mode
-                    
-                    if ensemble_mode:
-                        # Compute std per-model, then average across models
-                        # predictions: [M, K, N, num_classes]
-                        M, K, N, num_classes = predictions.shape
-                        
-                        model_stds = []
-                        for model_idx in range(M):
-                            # Std across K augmentations for this model
-                            std_per_class = torch.std(predictions[model_idx], dim=0)  # [N, num_classes]
-                            
-                            if num_classes == 1:
-                                model_std = std_per_class.squeeze(1)
-                            else:
-                                model_std = torch.mean(std_per_class, dim=1)  # [N]
-                            
-                            model_stds.append(model_std.cpu().numpy())
-                        
-                        # Store per-model stds for this group
-                        all_groups_model_stds.append(np.array(model_stds))  # [M, N]
-                        # Per-model mean softmax probs for this group: [M, N, C]
-                        group_model_mean_probs = np.array([
-                            predictions[mi].mean(dim=0).cpu().numpy()
-                            for mi in range(M)
-                        ])
-                        all_groups_model_mean_probs.append(group_model_mean_probs)  # [M, N, C]
-                        
-                        # Average across models for group-level uncertainty
-                        group_stds = np.mean(model_stds, axis=0)  # [N]
+                    all_policy_preds = []
+                    for policy_idx, single_policy in enumerate(policy_group):
+                        if policy_idx % max(1, K // 5) == 0:
+                            print(f" Policy {policy_idx+1}/{K}...")
+                        aug_transform = _build_tta_aug_transform(
+                            usingBetterRandAugment, n, m, image_normalization,
+                            nb_channels, mean, std, image_size, policy=single_policy
+                        )
+                        aug_preds = _stream_tta_inference(
+                            dataset, aug_transform, models, device, batch_size,
+                            dataloader_workers=_dl_workers,
+                            cached_dataset=cached_dataset,
+                        )  # [N, M, C]
+                        all_policy_preds.append(aug_preds.mean(dim=1))  # [N, C]
+
+                    all_preds_stacked = torch.stack(all_policy_preds, dim=0)  # [K, N, C]
+                    std_per_class = torch.std(all_preds_stacked, dim=0)  # [N, C]
+                    if std_per_class.shape[1] == 1:
+                        group_stds = std_per_class.squeeze(1).cpu().numpy()
                     else:
-                        # Standard: compute std across K augmentations (models already averaged)
-                        std_per_class = torch.std(predictions, dim=0)  # [N, num_classes]
-                        
-                        if std_per_class.shape[1] == 1:
-                            group_stds = std_per_class.squeeze(1).cpu().numpy()
-                        else:
-                            group_stds = torch.mean(std_per_class, dim=1).cpu().numpy()
-                
+                        group_stds = torch.mean(std_per_class, dim=1).cpu().numpy()
+
                 all_groups_stds.append(group_stds)
             
             # Average across groups if requested
@@ -574,7 +594,11 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
                 per_fold_stds = None
                 per_fold_mean_predictions = None
         else:
-            # Single policy or standard TTA: process each augmentation one by one
+            # Single policy or standard TTA: streaming inference (no full-dataset materialization).
+            # GPS goes through the is_gps_mode branch above; here we only handle plain TTA
+            # (usingBetterRandAugment=False) and BetterRandAugment single-policy TTA.
+            # We build one augmentation transform per pass and stream batches directly
+            # through the model, so RAM usage is O(batch_size) instead of O(N).
             if ensemble_mode:
                 # Ensemble mode: store per-model predictions
                 if not isinstance(models, list):
@@ -584,22 +608,22 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
                 model_predictions = [[] for _ in range(M)]
                 
                 for aug_idx in range(nb_augmentations):
-                    augmented_inputs = apply_augmentations(
-                        dataset, 1, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations, batch_size=batch_size, cached_dataset=cached_dataset, dataloader_workers=dataloader_workers
+                    print(f" TTA augmentation {aug_idx + 1}/{nb_augmentations} (streaming)...")
+                    aug_transform = _build_tta_aug_transform(
+                        usingBetterRandAugment, n, m, image_normalization,
+                        nb_channels, mean, std, image_size,
+                        policy=transformations[aug_idx] if isinstance(transformations, list) else None,
                     )
-                    # augmented_inputs shape: [1, batch_size, C, H, W]
-                    dataset_aug = TensorDataset(augmented_inputs[0])
-                    loader = DataLoader(dataset_aug, batch_size=batch_size, pin_memory=True)
-                    all_preds = []
-                    for batch in loader:
-                        batch_predictions = get_batch_predictions(models, batch[0], device)  # [B, M, C]
-                        all_preds.append(batch_predictions)
-                    
-                    aug_preds = torch.cat(all_preds, dim=0)  # [N, M, num_classes]
-                    
+                    # [N, M, C] — at most one batch of images in RAM at a time
+                    aug_preds = _stream_tta_inference(
+                        dataset, aug_transform, models, device, batch_size,
+                        dataloader_workers=dataloader_workers or 4,
+                        cached_dataset=cached_dataset,
+                    )
+
                     # Split by model
                     for model_idx in range(M):
-                        model_predictions[model_idx].append(aug_preds[:, model_idx, :])  # [N, num_classes]
+                        model_predictions[model_idx].append(aug_preds[:, model_idx, :])  # [N, C]
                 
                 # Compute std per model, then average
                 model_stds = []
@@ -634,20 +658,24 @@ def TTA(transformations, models, dataset, device, nb_augmentations=10,
             else:
                 # Standard mode: average models first
                 for aug_idx in range(nb_augmentations):
-                    augmented_inputs = apply_augmentations(
-                        dataset, 1, usingBetterRandAugment, n, m, image_normalization, nb_channels, mean, std, image_size, transformations, batch_size=batch_size, cached_dataset=cached_dataset, dataloader_workers=dataloader_workers
+                    print(f" TTA augmentation {aug_idx + 1}/{nb_augmentations} (streaming)...")
+                    aug_transform = _build_tta_aug_transform(
+                        usingBetterRandAugment, n, m, image_normalization,
+                        nb_channels, mean, std, image_size,
+                        policy=transformations[aug_idx] if isinstance(transformations, list) else None,
                     )
-                    # augmented_inputs shape: [1, batch_size, C, H, W]
-                    dataset_aug = TensorDataset(augmented_inputs[0])
-                    loader = DataLoader(dataset_aug, batch_size=batch_size, pin_memory=True)
-                    all_preds = []
-                    for batch in loader:
-                        batch_predictions = get_batch_predictions(models, batch[0], device)
-                        avg_preds = average_predictions(batch_predictions)
-                        all_preds.append(avg_preds)
-                    predictions.append(torch.cat(all_preds, dim=0))
-                # Stack predictions: [nb_augmentations, batch_size, num_classes]
-                averaged_predictions = torch.stack(predictions, dim=0).permute(1, 0, 2)  # [batch_size, nb_augmentations, num_classes]
+                    # [N, M, C]
+                    aug_preds = _stream_tta_inference(
+                        dataset, aug_transform, models, device, batch_size,
+                        dataloader_workers=dataloader_workers or 4,
+                        cached_dataset=cached_dataset,
+                    )
+                    # Average across models → [N, C]
+                    avg_preds = aug_preds.mean(dim=1)
+                    predictions.append(avg_preds)
+
+                # Stack predictions: [nb_augmentations, N, num_classes] → [N, nb_aug, C]
+                averaged_predictions = torch.stack(predictions, dim=0).permute(1, 0, 2)
                 stds = compute_stds(averaged_predictions)
                 per_fold_stds = None  # No per-fold data in standard mode
                 per_fold_mean_predictions = None

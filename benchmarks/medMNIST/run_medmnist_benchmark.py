@@ -696,6 +696,12 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             _candidates = sorted(_glob.glob(os.path.join(_sdir, f'{fname_prefix}*.json')))
             # Exclude corrupt runs (they use a different calib distribution)
             _candidates = [p for p in _candidates if '_corrupt_' not in os.path.basename(p)]
+            # For standard setup (no setup suffix), exclude files where a non-standard
+            # setup name follows the prefix (e.g. _DO_, _MC_).  Timestamps start with a
+            # digit, setup names start with a letter.
+            if not setup_suffix_str:
+                _candidates = [p for p in _candidates
+                               if os.path.basename(p)[len(fname_prefix):len(fname_prefix)+1].isdigit()]
             if not _candidates:
                 continue
             # Use the most recent matching file
