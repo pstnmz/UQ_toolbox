@@ -517,6 +517,30 @@ def main() -> None:
 		organ_augrc,
 	)
 
+	path_auroc = cross_dataset_pair_diffs(
+		records,
+		id_dataset="pathmnist",
+		shift_dataset="hmu-crc",
+		shift_type="population shifts",
+		metric_name="auroc",
+	)
+	print_backbone_table(
+		"pathmnist (ID) - hmu-crc (population shifts) AUROC-F:",
+		path_auroc,
+	)
+
+	path_augrc = cross_dataset_pair_diffs(
+		records,
+		id_dataset="pathmnist",
+		shift_dataset="hmu-crc",
+		shift_type="population shifts",
+		metric_name="augrc",
+	)
+	print_backbone_table(
+		"pathmnist (ID) - hmu-crc (population shifts) AUGRC:",
+		path_augrc,
+	)
+
 	# ── AMOS2022: OOD detection (new class shifts) vs failure detection (population shifts) ──
 	print("\n" + "=" * 70)
 	print("AMOS2022 — OOD detection vs failure detection")
@@ -606,6 +630,45 @@ def main() -> None:
 	print_backbone_table(
 		"pathmnist (ID) - hmu-crc (population shifts) AUGRC:",
 		hmu_vs_pathmnist_augrc,
+	)
+
+	# ── HMU-CRC (population shift) vs MIDOG (new class shifts) ──
+	print("\n" + "=" * 70)
+	print("HMU-CRC (population shift) vs MIDOG (new class shifts)")
+	print("=" * 70)
+
+	midog_ncs_auroc = mean_by_backbone(records, "new class shifts", "midog", "auroc")
+	print_absolute_table(
+		"midog new class shifts best-CSF AUROC-F (OOD detection):",
+		midog_ncs_auroc,
+	)
+
+	hmu_ps_auroc = mean_by_backbone(records, "population shifts", "hmu-crc", "auroc")
+	print_absolute_table(
+		"hmu-crc population shifts best-CSF AUROC-F (failure detection):",
+		hmu_ps_auroc,
+	)
+
+	hmu_vs_midog = arbitrary_pair_diffs(
+		records,
+		shift_type_a="population shifts", dataset_a="hmu-crc",
+		shift_type_b="new class shifts",  dataset_b="midog",
+		metric_name="auroc",
+	)
+	print_backbone_table(
+		"hmu-crc (population shifts) − midog (new class shifts) AUROC-F (failure − OOD detection):",
+		hmu_vs_midog,
+	)
+
+	hmu_vs_midog_augrc = arbitrary_pair_diffs(
+		records,
+		shift_type_a="population shifts", dataset_a="hmu-crc",
+		shift_type_b="new class shifts",  dataset_b="midog",
+		metric_name="augrc",
+	)
+	print_backbone_table(
+		"hmu-crc (population shifts) − midog (new class shifts) AUGRC (lower is better):",
+		hmu_vs_midog_augrc,
 	)
 
 	error_rate_vs_augrc_ensemble(records)

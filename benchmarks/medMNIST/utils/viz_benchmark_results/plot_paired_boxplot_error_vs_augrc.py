@@ -38,6 +38,7 @@ BACKBONE_TO_LABEL = {
 DATASET_DISPLAY = {
     "dermamnist-e-external": "dermamnist-e-ext",
     "midog": "midog ++",
+    "hmu-crc": "HMU-CRC",
 }
 
 SETUP_TO_LABEL = {

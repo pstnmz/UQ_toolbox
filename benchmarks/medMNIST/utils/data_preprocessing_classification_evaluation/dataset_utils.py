@@ -1071,6 +1071,8 @@ def get_available_corruptions(flag):
     
     # Handle dermamnist-e variants
     base_flag = flag.replace('-id', '').replace('-external', '')
+    if base_flag == 'dermamnist-e':
+        base_flag = 'dermamnist'
     
     if base_flag == 'amos2022':
         base_flag = 'organamnist'

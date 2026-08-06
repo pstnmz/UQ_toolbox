@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+WORKDIR /workspace
+
+COPY wheels_torch_cu126_cp312_full /wheels
+
+RUN pip install --no-index --find-links /wheels \
+    torch==2.12.1+cu126 torchvision==0.27.1+cu126
+
+CMD ["/bin/bash"]

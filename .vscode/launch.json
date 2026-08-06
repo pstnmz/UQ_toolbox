@@ -3,11 +3,13 @@
     "configurations": [
 
         {
-            "name": "plot_accuracy_vs_auroc.py",
+            "name": "fid_distance_in_dino_emb.py",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/Benchmarks/medMNIST/utils/viz_benchmark_results/auroc_f_vs_balanced_acc.py",
+            "program": "${workspaceFolder}/Benchmarks/medMNIST/utils/fid_distance_in_dino_emb.py",
             "cwd": "${workspaceFolder}",
+            "args": [
+            ],
             "console": "integratedTerminal",
             "justMyCode": false,
             

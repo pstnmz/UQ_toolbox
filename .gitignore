@@ -18,4 +18,5 @@ env*/
 # Build artifacts
 dist/
 build/
-*.egg-info/
+*.egg-info/wheels_torch_cu126_cp312_full/
+benchmarks/medMNIST/utils/viz_benchmark_results/scatter_plots/*.png

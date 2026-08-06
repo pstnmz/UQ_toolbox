@@ -63,6 +63,18 @@ CUSTOM_DATASET_FILES: dict[str, list[str]] = {
     "hmu-crc": ["hmu_crc_224.npz"],
 }
 
+# Standard MedMNIST NPZ files mirrored on the HF datasets repo under "medmnist/"
+MEDMNIST_NPZ: dict[str, str] = {
+    "bloodmnist":     "bloodmnist_224.npz",
+    "breastmnist":    "breastmnist_224.npz",
+    "dermamnist":     "dermamnist_224.npz",
+    "octmnist":       "octmnist_224.npz",
+    "organamnist":    "organamnist_224.npz",
+    "pathmnist":      "pathmnist_224.npz",
+    "pneumoniamnist": "pneumoniamnist_224.npz",
+    "tissuemnist":    "tissuemnist_224.npz",
+}
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -213,6 +225,79 @@ def ensure_dataset_file(
         shutil.copy2(dest, final)
     print(f"[hub] Saved to {final}")
     return final
+
+
+def ensure_medmnist_npz(
+    flag: str,
+    size: int = 224,
+    medmnist_root: str | Path | None = None,
+    hub_repo: str = HF_DATASETS_REPO,
+    token: str | None = None,
+) -> Path:
+    """
+    Ensure the medMNIST NPZ for *flag* at *size*px is present in *medmnist_root*.
+
+    Strategy:
+      1. Return immediately if the file already exists.
+      2. Try downloading from the HF datasets repo (``medmnist/{flag}_{size}.npz``).
+      3. If that fails, let medmnist's own ``download=True`` mechanism pull from
+         Zenodo when the dataset is instantiated.
+
+    Parameters
+    ----------
+    flag          : medMNIST flag, e.g. ``"breastmnist"``.
+    size          : Image size (default 224).
+    medmnist_root : Destination directory.  Defaults to ``~/.medmnist``.
+    hub_repo      : HF dataset repo id.
+    token         : HF access token (for private repos).
+
+    Returns
+    -------
+    Path to the local NPZ (may not exist yet if both download attempts are deferred).
+    """
+    import importlib
+    if medmnist_root is None:
+        try:
+            import medmnist.dataset as _md
+            medmnist_root = Path(_md.DEFAULT_ROOT)
+        except Exception:
+            medmnist_root = Path.home() / ".medmnist"
+
+    medmnist_root = Path(medmnist_root)
+    medmnist_root.mkdir(parents=True, exist_ok=True)
+
+    size_flag = "" if size == 28 else f"_{size}"
+    npz_name = f"{flag}{size_flag}.npz"
+    local_path = medmnist_root / npz_name
+
+    if local_path.exists():
+        return local_path
+
+    # Try HF Hub
+    hub_filename = f"medmnist/{npz_name}"
+    token = token or os.environ.get("HF_TOKEN")
+    try:
+        print(f"[hub] {npz_name} not found locally — downloading from {hub_repo} …")
+        dest = _hf_hub_download(
+            repo_id=hub_repo,
+            filename=hub_filename,
+            repo_type="dataset",
+            local_dir=medmnist_root,
+            token=token,
+        )
+        # Flatten: move out of any subfolder hf_hub_download may have created
+        dest = Path(dest)
+        if dest != local_path and not local_path.exists():
+            import shutil
+            shutil.copy2(dest, local_path)
+        print(f"[hub] Saved to {local_path}")
+        return local_path
+    except Exception as exc:
+        print(
+            f"[hub] HF Hub download failed ({exc}).\n"
+            f"      medmnist will attempt its own Zenodo download for {flag}."
+        )
+        return local_path   # let medmnist download=True handle it
 
 
 def download_all_datasets(

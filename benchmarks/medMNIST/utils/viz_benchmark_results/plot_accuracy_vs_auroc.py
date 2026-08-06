@@ -258,7 +258,10 @@ def collect_all_data_points(workspace_root):
             
             # Load classification metrics
             class_metrics = load_comprehensive_metrics(json_file)
-            if class_metrics is None or not class_metrics['per_fold_acc']:
+            if class_metrics is None:
+                continue
+            # Don't skip if per_fold is missing - may still have ensemble data
+            if not class_metrics['per_fold_acc'] and class_metrics['ensemble_acc'] is None:
                 continue
             
             # Find corresponding UQ metrics JSON file

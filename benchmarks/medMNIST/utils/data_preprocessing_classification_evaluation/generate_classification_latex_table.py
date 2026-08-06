@@ -12,9 +12,9 @@ from collections import defaultdict
 import numpy as np
 
 # Data directories
-ID_DIR = Path("benchmarks/medMNIST/utils/comprehensive_evaluation_results/in_distribution")
-CS_DIR = Path("benchmarks/medMNIST/utils/comprehensive_evaluation_results/corruption_shifts")
-PS_DIR = Path("benchmarks/medMNIST/utils/comprehensive_evaluation_results/population_shift")
+ID_DIR = Path("/workspace/Benchmarks/medMNIST/results/classification_results/in_distribution")
+CS_DIR = Path("/workspace/Benchmarks/medMNIST/results/classification_results/corruption_shifts")
+PS_DIR = Path("/workspace/Benchmarks/medMNIST/results/classification_results/population_shift")
 
 # Datasets to include (in order)
 DATASETS = [
@@ -62,6 +62,8 @@ def find_json_file(shift_type, dataset_id, model, setup):
         dataset_search = "dermamnist-e-ood"
     elif shift_type == "PS" and dataset_id == "organamnist":
         dataset_search = "amos22"
+    elif shift_type == "PS" and dataset_id == "pathmnist":
+        dataset_search = "hmu-crc"
     else:
         dataset_search = dataset_id
     
@@ -171,7 +173,7 @@ def collect_all_data():
         skip_datasets = []
         if shift == "PS":
             skip_datasets = ["bloodmnist", "breastmnist", "octmnist", "pneumoniamnist", 
-                           "tissuemnist", "pathmnist"]
+                           "tissuemnist"]
         
         for dataset_id, _ in DATASETS:
             if dataset_id in skip_datasets:

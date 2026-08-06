@@ -17,9 +17,10 @@ from medmnist import INFO
 from pathlib import Path
 import sys
 
-# Add parent directories to path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from dataset_utils import apply_random_corruptions
+# Add workspace root to path for imports
+workspace_root = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(workspace_root))
+from Benchmarks.medMNIST.utils.data_preprocessing_classification_evaluation.dataset_utils import apply_random_corruptions
 from Benchmarks.medMNIST.utils.data_preprocessing_classification_evaluation.local_dermamnist_e import DermaMNIST_E
 
 
@@ -69,6 +70,35 @@ def display_montage(dataset_name, shift='id', save_path=None):
         if selected_images.dtype == np.uint8 or selected_images.max() > 1.0:
             selected_images = selected_images.astype(np.float32) / 255.0
     
+    elif dataset_name == 'hmu-crc':
+        # Load HMU-CRC dataset (H&E stained colorectal cancer histology)
+        # Use memory-mapped .npy files for fast random access without loading into RAM
+        hmu_path = Path('/workspace/Benchmarks/medMNIST/data/HMU-CRC-Hist550K/hmu_crc_224_images.npy')
+        
+        if not hmu_path.exists():
+            raise FileNotFoundError(f"HMU-CRC dataset not found at {hmu_path}")
+        
+        num_images = 3
+        print(f" Loading HMU-CRC from: {hmu_path} (memory-mapped, selecting {num_images} random images)")
+        
+        # Use memory-mapping for fast random access without loading into RAM
+        images_mmap = np.load(str(hmu_path), mmap_mode='r')  # (N, 224, 224, 3) uint8 RGB
+        num_total = len(images_mmap)
+        
+        # Randomly select indices
+        indices = np.random.choice(num_total, min(num_images, num_total), replace=False)
+        
+        # Load only the selected images
+        selected_images = np.array([images_mmap[i] for i in indices])
+        
+        # Convert HWC to CHW format
+        if selected_images.ndim == 4 and selected_images.shape[-1] == 3:
+            selected_images = np.transpose(selected_images, (0, 3, 1, 2))  # (N, H, W, C) -> (N, C, H, W)
+        
+        # Normalize to [0, 1] range for display
+        if selected_images.dtype == np.uint8 or selected_images.max() > 1.0:
+            selected_images = selected_images.astype(np.float32) / 255.0
+
     elif dataset_name == 'amos2022':
         # Load AMOS dataset - try multiple possible paths
         possible_paths = [
@@ -309,6 +339,35 @@ def display_square_montage(dataset_name, shift='id', grid_size=4, save_path=None
         indices = np.random.choice(len(images), min(num_images, len(images)), replace=False)
         selected_images = images[indices]
         
+    elif dataset_name == 'hmu-crc':
+        # Load HMU-CRC dataset (H&E stained colorectal cancer histology)
+        # Use memory-mapped .npy files for fast random access without loading into RAM
+        hmu_path = Path('/workspace/Benchmarks/medMNIST/data/HMU-CRC-Hist550K/hmu_crc_224_images.npy')
+        
+        if not hmu_path.exists():
+            raise FileNotFoundError(f"HMU-CRC dataset not found at {hmu_path}")
+        
+        num_images = grid_size * grid_size
+        print(f" Loading HMU-CRC from: {hmu_path} (memory-mapped, selecting {num_images} random images)")
+        
+        # Use memory-mapping for fast random access without loading into RAM
+        images_mmap = np.load(str(hmu_path), mmap_mode='r')  # (N, 224, 224, 3) uint8 RGB
+        num_total = len(images_mmap)
+        
+        # Randomly select indices
+        indices = np.random.choice(num_total, min(num_images, num_total), replace=False)
+        
+        # Load only the selected images
+        selected_images = np.array([images_mmap[i] for i in indices])
+        
+        # Convert HWC to CHW format
+        if selected_images.ndim == 4 and selected_images.shape[-1] == 3:
+            selected_images = np.transpose(selected_images, (0, 3, 1, 2))  # (N, H, W, C) -> (N, C, H, W)
+        
+        # Normalize to [0, 1] range for display
+        if selected_images.dtype == np.uint8 or selected_images.max() > 1.0:
+            selected_images = selected_images.astype(np.float32) / 255.0
+        
     elif dataset_name == 'dermamnist-e-id':
         # ID test centers only
         dataset = DermaMNIST_E(split='test', test_subset='id', transform=transforms.ToTensor(), size=224)
@@ -488,19 +547,21 @@ def display_4x4_montage(dataset_name, shift='id', save_path=None):
     return display_square_montage(dataset_name, shift, grid_size=4, save_path=save_path)
 
 
-def generate_all_montages(output_dir='uq_benchmark_results/figures/dataset_montages', montage_type='both', square_size=None):
+def generate_all_montages(output_dir=None, montage_type='both', square_size=None):
     """
     Generate all montages for the benchmark.
     
     Parameters:
     -----------
-    output_dir : str
-        Directory to save all generated montages
+    output_dir : str, optional
+        Directory to save all generated montages. If None, defaults to workspace/uq_benchmark_results/...
     montage_type : str
         Type of montages to generate: '3x1', 'NxN', or 'both'
     square_size : int, optional
         Size of square grid for NxN montages (e.g., 8 for 8x8)
     """
+    if output_dir is None:
+        output_dir = workspace_root / 'uq_benchmark_results' / 'figures' / 'dataset_montages'
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
@@ -520,6 +581,7 @@ def generate_all_montages(output_dir='uq_benchmark_results/figures/dataset_monta
         'dermamnist-e-ext': ['ps'],
         'amos2022': ['ps', 'ncs'],
         'midog': ['ncs'],  # MIDOG++ canine patches (OOD for PathMNIST)
+        'hmu-crc': ['ps'],  # HMU-CRC dataset (H&E stained colorectal cancer histology)
     }
     
     # Determine what to generate
@@ -583,6 +645,22 @@ if __name__ == "__main__":
     # Example usage
     import sys
     
+    # Define all datasets for validation
+    all_datasets = {
+        'dermamnist-e-id': ['id', 'cs'],
+        'organamnist': ['id', 'cs'],
+        'tissuemnist': ['id', 'cs'],
+        'octmnist': ['id', 'cs'],
+        'pneumoniamnist': ['id', 'cs'],
+        'breastmnist': ['id', 'cs'],
+        'bloodmnist': ['id', 'cs'],
+        'pathmnist': ['id', 'cs'],
+        'dermamnist-e-ext': ['ps'],
+        'amos2022': ['ps', 'ncs'],
+        'midog': ['ncs'],
+        'hmu-crc': ['ps'],
+    }
+    
     if len(sys.argv) == 3 or len(sys.argv) == 4:
         # Command line usage: python create_dataset_montages.py organamnist id [montage_type]
         dataset = sys.argv[1]
@@ -591,7 +669,7 @@ if __name__ == "__main__":
         
         montage_type, square_size = parse_montage_type(montage_arg)
         
-        output_dir = Path('uq_benchmark_results/figures/dataset_montages')
+        output_dir = workspace_root / 'uq_benchmark_results' / 'figures' / 'dataset_montages'
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Determine what to generate
@@ -626,29 +704,57 @@ if __name__ == "__main__":
             print(f" Saved {square_size}x{square_size} montage to: {output_file} ({total_pixels}x{total_pixels} pixels)")
             plt.close(fig)
             
-    elif len(sys.argv) == 1 or len(sys.argv) == 2:
-        # No arguments or montage_type only: generate all montages
-        if len(sys.argv) == 2:
-            montage_type, square_size = parse_montage_type(sys.argv[1])
+    elif len(sys.argv) == 2:
+        # Single argument: could be dataset name, montage type, or shorthand
+        arg = sys.argv[1]
+        
+        # Check if it's a known dataset name
+        if arg in all_datasets:
+            # Generate montages for this dataset with its default shifts
+            output_dir = workspace_root / 'uq_benchmark_results' / 'figures' / 'dataset_montages'
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            shifts = all_datasets[arg]
+            print(f"\nGenerating montages for {arg} with shifts: {', '.join(shifts)}...")
+            
+            for shift in shifts:
+                fig = display_montage(arg, shift)
+                output_file = output_dir / f'{arg}_{shift}_3x1.png'
+                fig.savefig(output_file, dpi=100, bbox_inches=None, pad_inches=0)
+                print(f" Saved 3x1 montage: {output_file} (224x672 pixels)")
+                plt.close(fig)
+                
+                fig = display_square_montage(arg, shift, grid_size=4)
+                output_file = output_dir / f'{arg}_{shift}_4x4.png'
+                fig.savefig(output_file, dpi=100, bbox_inches=None, pad_inches=0)
+                print(f" Saved 4x4 montage: {output_file} (896x896 pixels)")
+                plt.close(fig)
+        else:
+            # Treat as montage type for all datasets
+            montage_type, square_size = parse_montage_type(arg)
             if montage_type == 'both':
                 square_size = 4  # Default for 'both'
-        else:
-            montage_type = 'both'
-            square_size = 4
-        generate_all_montages(montage_type=montage_type, square_size=square_size)
+            generate_all_montages(montage_type=montage_type, square_size=square_size)
+            
+    elif len(sys.argv) == 1:
+        # No arguments: generate all montages
+        generate_all_montages(montage_type='both', square_size=4)
     else:
         print("Usage:")
-        print(" python create_dataset_montages.py [montage_type]                      # Generate all")
-        print(" python create_dataset_montages.py <dataset> <shift> [montage_type]    # Generate one")
+        print(" python create_dataset_montages.py                           # Generate all datasets")
+        print(" python create_dataset_montages.py <dataset>                 # Generate one dataset")
+        print(" python create_dataset_montages.py <montage_type>            # Generate all with montage type")
+        print(" python create_dataset_montages.py <dataset> <shift>         # Generate specific dataset+shift")
+        print(" python create_dataset_montages.py <dataset> <shift> <type>  # Full control")
         print("")
-        print("Montage types: 3x1 (224x672px), NxN (e.g., 4x4=896x896px, 8x8=1792x1792px), both (3x1+4x4)")
+        print("Montage types: 3x1, NxN (e.g., 4x4, 8x8, 16x16), both")
         print("")
         print("Examples:")
-        print(" python create_dataset_montages.py 8x8                    # Generate 8x8 for all datasets")
-        print(" python create_dataset_montages.py organamnist id 16x16   # Generate 16x16 for one dataset")
-        print(" python create_dataset_montages.py both                   # Generate 3x1 and 4x4 for all")
+        print(" python create_dataset_montages.py hmu-crc                  # Generate all shifts for hmu-crc")
+        print(" python create_dataset_montages.py 8x8                      # Generate 8x8 for all datasets")
+        print(" python create_dataset_montages.py organamnist id 16x16     # Generate 16x16 for organamnist-id")
         print("")
         print("Datasets: organamnist, amos2022, dermamnist-e-id, dermamnist-e-ext,")
-        print(" pathmnist, tissuemnist, breastmnist, pneumoniamnist, octmnist, bloodmnist, midog")
+        print(" pathmnist, tissuemnist, breastmnist, pneumoniamnist, octmnist, bloodmnist, midog, hmu-crc")
         print("Shifts: id, cs, ps, ncs")
         sys.exit(1)

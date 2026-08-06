@@ -1,0 +1,4 @@
+*
+!Dockerfile.py312
+!wheels_torch_cu126_cp312_full/
+!wheels_torch_cu126_cp312_full/**
