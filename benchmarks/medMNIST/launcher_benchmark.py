@@ -82,7 +82,7 @@ ALL_METHODS = [
     'TTA', 
     'GPS', 
     'KNN_Raw', 
-    #'KNN_SHAP', 
+    'KNN_SHAP', 
     'MCDropout',
     'ZScore_Aggregation_per_fold',
     'ZScore_Aggregation_ensemble'
@@ -150,6 +150,7 @@ def generate_command(
     run_mode: str = 'both',
     max_loader_workers: int = 48,
     concurrent_processes: int = 1,
+    shap_only: bool = False,
     **kwargs
 ) -> str:
     """
@@ -223,6 +224,9 @@ def generate_command(
     if run_mode != 'both':
         cmd_parts.append(f"--run-mode {run_mode}")
 
+    if shap_only:
+        cmd_parts.append("--shap-only")
+
     # Worker / parallelism hints
     cmd_parts.append(f"--max-loader-workers {max_loader_workers}")
     if concurrent_processes > 1:
@@ -239,6 +243,7 @@ def generate_all_commands(
     script_path: Path,
     gpu: int,
     exclude_methods: List[str] = None,
+    only_methods: List[str] = None,
     per_fold_eval: bool = True,
     output_dir: str = './uq_benchmark_results',
     corruption_severity: int = 0,
@@ -247,7 +252,8 @@ def generate_all_commands(
     new_class_shift: bool = False,
     run_mode: str = 'both',
     max_loader_workers: int = 48,
-    concurrent_processes: int = 1
+    concurrent_processes: int = 1,
+    shap_only: bool = False
 ) -> List[Dict]:
     """
     Generate all benchmark commands for specified configurations.
@@ -267,6 +273,8 @@ def generate_all_commands(
             for setup in setups:
                 # Get compatible methods for this setup
                 methods = get_methods_for_setup(setup, exclude_methods)
+                if only_methods:
+                    methods = [m for m in methods if m in only_methods]
                 
                 if not methods:
                     print(f"[WARNING] Skipping {dataset}/{model}/{setup or 'standard'}: no compatible methods")
@@ -288,7 +296,8 @@ def generate_all_commands(
                     new_class_shift=new_class_shift,
                     run_mode=run_mode,
                     max_loader_workers=max_loader_workers,
-                    concurrent_processes=concurrent_processes
+                    concurrent_processes=concurrent_processes,
+                    shap_only=shap_only
                 )
                 
                 commands.append({
@@ -427,7 +436,12 @@ def main():
         choices=ALL_METHODS,
         help='Methods to exclude from all runs'
     )
-    
+    parser.add_argument(
+        '--only-methods', nargs='+',
+        default=None,
+        choices=ALL_METHODS,
+        help='Restrict runs to only these methods (overrides the setup-compatible default list)'
+    )
     # Execution options
     parser.add_argument(
         '--gpu', type=int, default=0,
@@ -483,6 +497,12 @@ def main():
              '(used to throttle CPU per process, default: 1).'
     )
     parser.add_argument(
+        '--shap-only', action='store_true', default=False,
+        help='With --only-methods KNN_SHAP: only compute and cache SHAP values, skipping '
+             'train-feature extraction, KNN fitting, and metrics. Typically combined with '
+             '--run-mode calib_only.'
+    )
+    parser.add_argument(
         '--dry-run', action='store_true',
         help='Print commands without executing them'
     )
@@ -521,6 +541,7 @@ def main():
         script_path=script_path,
         gpu=args.gpu,
         exclude_methods=args.exclude_methods,
+        only_methods=args.only_methods,
         per_fold_eval=args.per_fold_eval,
         output_dir=args.output_dir,
         corruption_severity=args.corruption_severity,
@@ -529,7 +550,8 @@ def main():
         new_class_shift=args.new_class_shift,
         run_mode=args.run_mode,
         max_loader_workers=args.max_loader_workers,
-        concurrent_processes=args.concurrent_processes
+        concurrent_processes=args.concurrent_processes,
+        shap_only=args.shap_only
     )
     
     if not commands:

@@ -40,7 +40,7 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                            min_failure_ratio=0.3, corruption_severity=0,
                            corrupt_test=False, corrupt_calib=False, new_class_shift=False,
                            concurrent_processes=1, max_loader_workers=16,
-                           run_mode='both'):
+                           run_mode='both', shap_only=False):
     """
     Run UQ benchmark on a medMNIST dataset using FailCatcher library.
     
@@ -69,6 +69,9 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
                       mean/std stats for Z-score normalization; saves JSON and returns early.
                   'test_only': skip calib_detector runs, only evaluate on the test set.
                   'both': run both calib and test (normal full benchmark).
+        shap_only: If True (only meaningful when 'KNN_SHAP' is in methods), only compute and
+                  cache SHAP values (skip train-feature extraction, KNN fitting, compute() and
+                  metrics). Useful for pre-warming SHAP caches across many datasets cheaply.
     """
     print(f"\n{'='*80}")
     print(f"MedMNIST Benchmark: {flag}")
@@ -108,11 +111,25 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     concurrent_processes = max(1, int(concurrent_processes))
     cpu_budget = max(1, cpu_total // concurrent_processes)
     max_loader_workers = max(1, int(max_loader_workers))
-    shared_loader_workers = min(max_loader_workers, max(4, (cpu_budget * 3) // 4))
+    
+    # For multi-GPU parallel KNN-SHAP, scale workers more aggressively (less torch threading needed).
+    # ponytail: With N_GPU independent GPU workers, each can safely use more DataLoader workers
+    # since they're not competing for GPU bandwidth. Use more workers, fewer torch threads.
+    n_gpus = torch.cuda.device_count()
+    if n_gpus >= 2:
+        # Scale up workers for parallel GPU compute: 80% of budget to workers, 20% to torch threading.
+        workers_fraction = 0.8
+        torch_fraction = 0.2
+    else:
+        # Single GPU: conservative 75% to workers, 25% to torch threading.
+        workers_fraction = 0.75
+        torch_fraction = 0.25
+    
+    shared_loader_workers = min(max_loader_workers, max(4, int(cpu_budget * workers_fraction)))
     loader_pin_memory = device.type == 'cuda'
 
     # Limit intra-op/inter-op CPU threading per process.
-    torch_threads = max(1, min(16, cpu_budget // 2))
+    torch_threads = max(1, min(16, max(1, int(cpu_budget * torch_fraction))))
     try:
         torch.set_num_threads(torch_threads)
         torch.set_num_interop_threads(1)
@@ -122,12 +139,14 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
 
     print(
         f"CPU budget: total={cpu_total}, concurrent_processes={concurrent_processes}, "
-        f"per_process_budget≈{cpu_budget}"
+        f"per_process_budget≈{cpu_budget}, GPUs={n_gpus}"
     )
     print(
         f"  Worker config: shared_loader_workers={shared_loader_workers}, "
         f"max_loader_workers={max_loader_workers}, torch_threads={torch_threads}"
     )
+    if n_gpus >= 2:
+        print(f"  Multi-GPU mode: prioritizing DataLoader workers ({int(workers_fraction*100)}%) over torch threading")
     
     # Parse dermamnist-e variants
     base_flag = flag
@@ -332,6 +351,12 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
     
     # Add new class shift to cache key
     new_class_suffix = "_new_class_shift" if new_class_shift else ""
+
+    # Use the same cache namespace components for KNN-SHAP artifacts so
+    # standard/DA/DO/DADO and resnet/vit runs never reuse each other's SHAP cache.
+    knn_shap_cache_namespace = (
+        f"{flag}_{model_backbone}{setup_suffix}{corruption_suffix}{new_class_suffix}"
+    )
     
     calib_cache_path = os.path.join(cache_dir, f'{flag}_{model_backbone}{setup_suffix}{corruption_suffix}{new_class_suffix}_calib_results.npz')
     test_cache_path = os.path.join(cache_dir, f'{flag}_{model_backbone}{setup_suffix}{corruption_suffix}{new_class_suffix}_test_results.npz')
@@ -1079,9 +1104,8 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
             )
             _store_calibration_stats('GPS')
     
-    if 'KNN_Raw' in methods:
-        print("\nRunning KNN-Raw...")
-
+    # Initialize KNN resources if either KNN_Raw or KNN_SHAP is requested
+    if 'KNN_Raw' in methods or 'KNN_SHAP' in methods:
         # Adaptive batch size for KNN methods based on model architecture
         # KNN requires full forward passes on large datasets which can OOM
         knn_batch_size = min(batch_size, 3000)  # Conservative default for all models
@@ -1097,22 +1121,31 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         if knn_batch_size < batch_size:
             knn_test_loader = DataLoader(
                 test_dataset, batch_size=knn_batch_size, shuffle=False,
-                num_workers=shared_loader_workers, pin_memory=loader_pin_memory
+                num_workers=shared_loader_workers, pin_memory=loader_pin_memory,
+                # compute() iterates this loader once per fold - keep workers alive across folds.
+                persistent_workers=shared_loader_workers > 0
             )
         
         # Create CV train loaders for KNN methods
-        cv_gen = dataset_utils.create_cv_generator(n_splits=5, seed=42, batch_size=knn_batch_size)
+        cv_gen = dataset_utils.create_cv_generator(
+            n_splits=5, seed=42, batch_size=knn_batch_size, num_workers=shared_loader_workers
+        )
         train_loaders = cv_gen(study_dataset, models, knn_batch_size)
         
         # Create KNN-specific calibration loader with reduced batch size (for hyperparameter tuning)
         if knn_batch_size < batch_size:
             knn_calib_loader = DataLoader(
                 calib_dataset, batch_size=knn_batch_size, shuffle=False,
-                num_workers=shared_loader_workers, pin_memory=loader_pin_memory
+                num_workers=shared_loader_workers, pin_memory=loader_pin_memory,
+                # KNN_SHAP re-extracts this same calib set as SHAP background once per fold.
+                persistent_workers=shared_loader_workers > 0
             )
         else:
             knn_calib_loader = calib_loader  # Use original loader if batch size is same
-            
+    
+    if 'KNN_Raw' in methods:
+        print("\nRunning KNN-Raw...")
+        
         mode_str = "per-fold" if per_fold_eval else "ensemble"
         print(f" Mode: {mode_str} evaluation")
         
@@ -1165,40 +1198,50 @@ def run_medmnist_benchmark(flag, methods, output_dir='./uq_benchmark_results',
         parallel_mode = torch.cuda.device_count() >= 3
         n_jobs = 3 if parallel_mode else 1
         
+        if parallel_mode:
+            print(f" Parallel GPU mode: {n_jobs} folds on {torch.cuda.device_count()} GPUs")
+            print(f" DataLoader workers: {shared_loader_workers} (optimized for multi-GPU feature extraction)")
+        
         if run_test:
             uncertainties, metrics = detector.run_knn_shap(
-                calib_loader=calib_loader,
+                calib_loader=knn_calib_loader,
                 test_loader=knn_test_loader,
                 train_loaders=train_loaders,
                 y_true=y_true,
-                flag=flag,
+                flag=knn_shap_cache_namespace,
                 layer_name='avgpool',
-                k=5,
+                k=10,
                 n_shap_features=50,
                 cache_dir=os.path.join(output_dir, 'shap_cache'),
                 parallel=parallel_mode,
                 n_jobs=n_jobs,
-                per_fold_evaluation=per_fold_eval
+                per_fold_evaluation=per_fold_eval,
+                shap_only=shap_only
             )
-            results['KNN_SHAP'] = metrics
-            print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
+            if not shap_only:
+                results['KNN_SHAP'] = metrics
+                print(f" AUROC: {metrics['auroc_f']:.4f}, AUGRC: {metrics['augrc']:.6f}")
 
         if run_calib:
             calib_detector.run_knn_shap(
-                calib_loader=calib_loader,
+                calib_loader=knn_calib_loader,
                 test_loader=knn_calib_loader,
                 train_loaders=train_loaders,
                 y_true=y_true_calib,
-                flag=f"{flag}_calib",
+                # ponytail: SHAP cache is keyed only on calib_loader+fold+bg size, so this
+                # must match the test branch's flag (no "_calib" suffix) to reuse the same cache.
+                flag=knn_shap_cache_namespace,
                 layer_name='avgpool',
                 k=5,
                 n_shap_features=50,
                 cache_dir=os.path.join(output_dir, 'shap_cache'),
                 parallel=parallel_mode,
                 n_jobs=n_jobs,
-                per_fold_evaluation=per_fold_eval
+                per_fold_evaluation=per_fold_eval,
+                shap_only=shap_only
             )
-            _store_calibration_stats('KNN_SHAP')
+            if not shap_only:
+                _store_calibration_stats('KNN_SHAP')
     
     # ========================================================================
     # MC DROPOUT - RUN LAST TO AVOID INTERFERING WITH OTHER METHODS
@@ -1526,6 +1569,12 @@ if __name__ == '__main__':
              "calib_detector to collect z-score normalization stats (saves JSON, skips test); "
              "'test_only' skips calib_detector and only evaluates on the test set."
     )
+    parser.add_argument(
+        '--shap-only', action='store_true', default=False,
+        help="With --methods KNN_SHAP: only compute and cache SHAP values, skipping train-feature "
+             "extraction, KNN fitting, and metrics. Useful for pre-warming SHAP caches cheaply. "
+             "Typically combined with --run-mode calib_only."
+    )
     
     args = parser.parse_args()
     
@@ -1563,5 +1612,6 @@ if __name__ == '__main__':
         new_class_shift=args.new_class_shift,
         concurrent_processes=args.concurrent_processes,
         max_loader_workers=args.max_loader_workers,
-        run_mode=args.run_mode
+        run_mode=args.run_mode,
+        shap_only=args.shap_only
     )

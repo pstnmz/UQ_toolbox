@@ -813,8 +813,13 @@ def create_cv_generator(n_splits=5, seed=42, batch_size=5000, num_workers=0):
         """
         bs = batch_size_override or batch_size
         
-        # Get labels
-        labels = [label for _, label in study_dataset]
+        # Get labels. medMNIST DataClass datasets expose labels as a plain array -
+        # use it directly instead of running __getitem__ (full image transform) on
+        # every sample just to read the label (was the main CPU/latency cost here).
+        if hasattr(study_dataset, 'labels'):
+            labels = np.asarray(study_dataset.labels).reshape(-1)
+        else:
+            labels = [label for _, label in study_dataset]
         
         # Create same CV splits as training (CRITICAL: same seed!)
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
@@ -828,7 +833,10 @@ def create_cv_generator(n_splits=5, seed=42, batch_size=5000, num_workers=0):
                 shuffle=True,
                 num_workers=num_workers,
                 pin_memory=True,
-                drop_last=False
+                drop_last=False,
+                # KNN_Raw and KNN_SHAP both iterate the same fold loader - keep workers alive
+                # across those iterations instead of respawning the whole pool each time.
+                persistent_workers=num_workers > 0
             )
             train_loaders.append(train_loader)
         

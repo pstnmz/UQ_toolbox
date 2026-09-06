@@ -184,7 +184,9 @@ class DermaMNIST_E(MedMNIST):
 
         # Convert label to plain int
         if isinstance(label, (np.ndarray, np.generic)):
-            label = int(label)
+            # .item() handles both 0-d scalars and 1-element arrays (e.g. shape (1,));
+            # int(label) only works for 0-d, which crashed on filtered ID/external subsets.
+            label = int(np.asarray(label).item())
         elif torch.is_tensor(label):
             label = int(label.item())
 

@@ -1612,22 +1612,17 @@ class FailureDetector:
                 knn_method = uq.KNNLatentMethod(layer_name=layer_name, k=1)  # k doesn't matter for feature extraction
                 knn_method.fit(self.models, train_loaders, self.device)
                 
-                # Step 2: Extract and transform calibration features + store training features
+                # Step 2: Extract and transform calibration features.
+                # Training features are already PCA-transformed and cached on fitted_models
+                # by fit() above - reuse them instead of re-running the forward pass.
                 from ToolBox.methods.latent import extract_latent_space_and_compute_shap_importance, get_layer_from_model
                 
                 calib_features_transformed = []
-                train_features_transformed = []  # Store for grid search
+                train_features_transformed = []  # Reused for grid search
                 
-                for fold_idx, (model, fitted, train_loader) in enumerate(zip(self.models, knn_method.fitted_models, train_loaders)):
+                for fold_idx, (model, fitted) in enumerate(zip(self.models, knn_method.fitted_models)):
                     layer = fitted['layer']
-                    
-                    # Extract and transform training features (needed for grid search)
-                    train_features, _, _, _ = extract_latent_space_and_compute_shap_importance(
-                        model, train_loader, self.device, layer, importance=False
-                    )
-                    train_features_std = fitted['scaler'].transform(train_features.numpy())
-                    train_features_pca = fitted['pca'].transform(train_features_std)
-                    train_features_transformed.append(train_features_pca)
+                    train_features_transformed.append(fitted['train_features_pca'])
                     
                     # Extract and transform calibration features
                     calib_features, _, _, _ = extract_latent_space_and_compute_shap_importance(
@@ -1699,8 +1694,18 @@ class FailureDetector:
         
         # Fit final model with selected k
         with timer:
-            knn_method = uq.KNNLatentMethod(layer_name=layer_name, k=k_selected)
-            knn_method.fit(self.models, train_loaders, self.device)
+            if k_grid is not None:
+                # Reuse the PCA/scaler + cached train features from the grid search above;
+                # only refit KNN itself (cheap) instead of re-running feature extraction again.
+                from sklearn.neighbors import NearestNeighbors
+                for fitted in knn_method.fitted_models:
+                    final_knn = NearestNeighbors(n_neighbors=k_selected)
+                    final_knn.fit(fitted['train_features_pca'])
+                    fitted['knn'] = final_knn
+                knn_method.k = k_selected
+            else:
+                knn_method = uq.KNNLatentMethod(layer_name=layer_name, k=k_selected)
+                knn_method.fit(self.models, train_loaders, self.device)
             uncertainties = knn_method.compute(self.models, test_loader, self.device, 
                                               return_per_fold=per_fold_evaluation)
         
@@ -1759,7 +1764,8 @@ class FailureDetector:
         cache_dir: Optional[str] = None,
         parallel: bool = False,
         n_jobs: int = 2,
-        per_fold_evaluation: bool = True
+        per_fold_evaluation: bool = True,
+        shap_only: bool = False
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Run KNN in SHAP-selected latent space.
@@ -1778,6 +1784,8 @@ class FailureDetector:
             parallel: Enable parallel processing across folds
             n_jobs: Number of parallel workers
             per_fold_evaluation: If True, compute per-fold metrics. If False, average uncertainties
+            shap_only: If True, only compute and cache SHAP values (skip train-feature
+                extraction, KNN fitting, compute() and metrics). Returns (None, {}).
         
         Returns:
             tuple: (uncertainties, metrics_dict)
@@ -1793,11 +1801,15 @@ class FailureDetector:
                 n_shap_features=n_shap_features,
                 cache_dir=cache_dir,
                 parallel=parallel,
-                n_jobs=n_jobs
+                n_jobs=n_jobs,
+                shap_only=shap_only
             )
             
             # Fit and compute uncertainties
             knn_method.fit(self.models, train_loaders, calib_loader, self.device, flag=flag)
+            if shap_only:
+                print(f" shap_only=True: SHAP cache populated, skipping compute()/metrics")
+                return None, {}
             uncertainties = knn_method.compute(self.models, test_loader, self.device,
                                               return_per_fold=per_fold_evaluation)
         
